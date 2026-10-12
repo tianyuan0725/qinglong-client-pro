@@ -96,15 +96,19 @@ struct CronTask: Identifiable, Hashable {
         return enabled?.value ?? true
     }
 
+    // 与面板网页逻辑一致：只看 status 字段。
+    // 不要用 pid>0 判断——青龙只在「手动停止」时才清空 pid，
+    // 自然跑完的任务 pid 会残留在数据库，会误判成运行中。
     var isRunning: Bool {
-        (status?.value ?? 1) == 0 || (pid?.value ?? 0) > 0
+        status?.value == 0
     }
 
     var statusLabel: String {
         if isRunning { return "运行中" }
-        switch status?.value ?? 1 {
+        switch status?.value {
         case 3: return "排队中"
-        default: return isEnabled ? "空闲" : "已禁用"
+        case 2: return "已禁用"
+        default: return isEnabled ? "空闲中" : "已禁用"
         }
     }
 
