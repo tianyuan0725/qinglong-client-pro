@@ -6,6 +6,7 @@ struct SystemSettingsView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var store: ConnectionStore
     @EnvironmentObject var appLock: AppLockManager
+    @StateObject private var notify = AppNotifyManager.shared
     @State private var showNotify = false
 
     private let schemes = ["system": "跟随系统", "light": "浅色", "dark": "深色"]
@@ -77,10 +78,29 @@ struct SystemSettingsView: View {
                 .onAppear { Task { await session.loadSystemConfig() } }
 
                 Section("通知设置") {
+                    Toggle(isOn: $notify.enabled) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("任务运行本地通知")
+                            Text(notify.enabled
+                                 ? (notify.authorized ? "任务开始 / 完成时弹出系统通知（类微信横幅）" : "尚未获得通知权限，开启后请允许")
+                                 : "已关闭")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if !notify.authorized {
+                        Button("前往系统设置开启通知权限") { notify.openSystemSettings() }
+                            .font(.subheadline)
+                    }
+                    Button("发送测试本地通知") {
+                        Task { @MainActor in
+                            notify.notify(title: "青龙客户端 Pro", body: "这是一条本地测试通知")
+                        }
+                    }
                     Button {
                         showNotify = true
                     } label: {
-                        Label("发送测试通知", systemImage: "bell")
+                        Label("发送测试通知（面板渠道）", systemImage: "bell")
                     }
                 }
 

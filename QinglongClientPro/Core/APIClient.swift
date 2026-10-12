@@ -26,7 +26,7 @@ final class APIClient {
         self.apiPrefix = apiPrefix
         self.token = token
         let cfg = URLSessionConfiguration.default
-        cfg.timeoutIntervalForRequest = 30
+        cfg.timeoutIntervalForRequest = 15
         cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
         self.session = URLSession(configuration: cfg)
     }

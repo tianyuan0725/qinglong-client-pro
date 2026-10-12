@@ -160,6 +160,17 @@ final class PanelSession: ObservableObject {
         }
     }
 
+    /// 取消冷启动的会话恢复：回到登录页，用户可手动重试或切换面板。
+    /// 用户反馈（v2.0.5）：关闭应用锁后冷启动遇到网络慢时，界面长期停在
+    /// 「正在连接面板…」没有任何出口，像「进不去 App」。恢复流程不再把
+    /// 用户摁在占位页上——随时可取消。
+    func cancelRestoring() {
+        guard isRestoring else { return }
+        isRestoring = false
+        isAuthenticated = false
+        authError = "已取消连接。请检查网络后重试，或返回面板列表切换面板。"
+    }
+
     private func persistToken(_ token: String) {
         KeychainHelper.save(Data(token.utf8), account: tokenAccount)
     }
@@ -527,10 +538,19 @@ final class PanelSession: ObservableObject {
 
     // MARK: - Cron mutations
 
-    func runCron(_ ids: [String]) async {
+    /// 运行任务。返回是否成功触发（用于发送本地通知的「开始执行」提醒）。
+    @discardableResult
+    func runCron(_ ids: [String]) async -> Bool {
         isBusy = true; defer { isBusy = false }
-        do { try await client.runCron(ids: ids); try? await Task.sleep(nanoseconds: 600_000_000); await loadCrons() }
-        catch { lastError = error.localizedDescription }
+        do {
+            try await client.runCron(ids: ids)
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            await loadCrons()
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
     }
 
     func stopCron(_ ids: [String]) async {

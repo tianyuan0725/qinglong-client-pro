@@ -84,7 +84,13 @@ struct CronDetailView: View {
     private var actionButtons: some View {
         HStack(spacing: 12) {
             action("运行", systemImage: "play.fill", .green) {
-                Task { await session.runCron([cron.id]) }
+                Task { @MainActor in
+                    let ok = await session.runCron([cron.id])
+                    if ok {
+                        AppNotifyManager.shared.notifyCronStarted(name: cron.name)
+                        AppNotifyManager.shared.watchCron(session: session, cronId: cron.id, name: cron.name)
+                    }
+                }
             }
             action("停止", systemImage: "stop.fill", .red) {
                 Task { await session.stopCron([cron.id]) }

@@ -6,6 +6,8 @@ struct QinglongClientProApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var appLock = AppLockManager()
     @StateObject private var updater = UpdateChecker.shared
+    // 本地通知（任务运行弹窗提醒）：单例，尽早创建以注册通知 delegate
+    @StateObject private var notifier = AppNotifyManager.shared
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {

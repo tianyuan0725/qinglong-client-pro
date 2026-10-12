@@ -58,7 +58,15 @@ struct CronListView: View {
                                     Task { await session.deleteCron([cron.id]) }
                                 } label: { Label("删除", systemImage: "trash") }
                                 Button {
-                                    Task { await session.runCron([cron.id]) }
+                                    Task { @MainActor in
+                                        // 本地通知：任务开始执行即提醒，结束后再提醒一次
+                                        // （用户要的是苹果系统弹窗，类微信横幅）
+                                        let ok = await session.runCron([cron.id])
+                                        if ok {
+                                            AppNotifyManager.shared.notifyCronStarted(name: cron.name)
+                                            AppNotifyManager.shared.watchCron(session: session, cronId: cron.id, name: cron.name)
+                                        }
+                                    }
                                 } label: { Label("运行", systemImage: "play") }
                                     .tint(.green)
                             }

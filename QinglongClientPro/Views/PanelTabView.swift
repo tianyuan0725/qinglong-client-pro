@@ -56,6 +56,12 @@ struct PanelTabView: View {
             Text("正在连接面板…")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+            Text("网络较慢时可取消，返回登录页重试")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("取消") { session.cancelRestoring() }
+                .buttonStyle(.bordered)
+                .tint(qlBrandGreen)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemGroupedBackground))
