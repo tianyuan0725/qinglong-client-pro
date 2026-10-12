@@ -325,3 +325,261 @@ enum APIError: LocalizedError {
         }
     }
 }
+
+// MARK: - File node (脚本管理)
+
+/// A node returned by `GET /api/scripts` (v2.20+). `key` is the relative path
+/// used for navigation; `type` is "directory" | "file".
+struct FileNode: Identifiable, Hashable {
+    var id: String { key.isEmpty ? title : key }
+    var title: String = ""
+    var key: String = ""
+    var type: String = "file"
+    var parent: String = ""
+    var createTime: Int?
+    var size: Int?
+
+    var isDirectory: Bool { type == "directory" }
+
+    var sizeText: String? {
+        guard let s = size, s > 0 else { return nil }
+        let kb = Double(s) / 1024.0
+        if kb < 1024 { return String(format: "%.1f KB", kb) }
+        return String(format: "%.2f MB", kb / 1024.0)
+    }
+}
+
+extension FileNode: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case title, key, type, parent, size, createTime
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? ""
+        key = (try? c.decodeIfPresent(String.self, forKey: .key)) ?? title
+        type = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? "file"
+        parent = (try? c.decodeIfPresent(String.self, forKey: .parent)) ?? ""
+        createTime = try? c.decodeIfPresent(Int.self, forKey: .createTime)
+        size = try? c.decodeIfPresent(Int.self, forKey: .size)
+    }
+}
+
+// MARK: - Dependency (依赖管理)
+
+/// 青龙依赖。type: 0=Node.js / 1=Python3 / 2=Linux。status 见 DependenceStatus。
+struct Dependency: Identifiable, Hashable {
+    var id: Int { _id }
+    var _id: Int = 0
+    var name: String = ""
+    var type: Int = 0
+    var status: Int = 6
+    var remark: String = ""
+
+    var typeLabel: String {
+        switch type {
+        case 0: return "Node.js"
+        case 1: return "Python3"
+        case 2: return "Linux"
+        default: return "类型 \(type)"
+        }
+    }
+
+    /// 0 installing / 1 installed / 2 installFailed / 3 removing / 4 removed
+    /// 5 removeFailed / 6 queued / 7 cancelled
+    var statusLabel: String {
+        switch status {
+        case 0: return "安装中"
+        case 1: return "已安装"
+        case 2: return "安装失败"
+        case 3: return "卸载中"
+        case 4: return "已卸载"
+        case 5: return "卸载失败"
+        case 6: return "排队中"
+        case 7: return "已取消"
+        default: return "未知"
+        }
+    }
+
+    var isInstalled: Bool { status == 1 }
+    var isBusy: Bool { status == 0 || status == 3 || status == 6 }
+}
+
+extension Dependency: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case _id = "id", name, type, status, remark
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        _id = (try? c.decodeIfPresent(Int.self, forKey: ._id)) ?? 0
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        type = (try? c.decodeIfPresent(Int.self, forKey: .type)) ?? 0
+        status = (try? c.decodeIfPresent(Int.self, forKey: .status)) ?? 6
+        remark = (try? c.decodeIfPresent(String.self, forKey: .remark)) ?? ""
+    }
+}
+
+// MARK: - Config file (配置文件)
+
+struct ConfigFile: Identifiable, Hashable {
+    var id: String { value }
+    var title: String = ""
+    var value: String = ""   // file name, e.g. config.sh
+}
+
+extension ConfigFile: Decodable {
+    enum CodingKeys: String, CodingKey { case title, value }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? ""
+        value = (try? c.decodeIfPresent(String.self, forKey: .value)) ?? title
+    }
+}
+
+// MARK: - Subscription (订阅管理)
+
+/// 青龙订阅。status: 0 running / 1 idle / 2 disabled / 3 queued。
+struct Subscription: Identifiable, Hashable {
+    var id: Int { _id }
+    var _id: Int = 0
+    var name: String = ""
+    var alias: String = ""
+    var type: String = ""            // public-repo / private-repo / file
+    var scheduleType: String = ""    // crontab / interval
+    var schedule: String = ""
+    var url: String = ""
+    var status: Int = 1
+    var isDisabled: Int = 0
+    var branch: String = ""
+    var whitelist: String = ""
+    var blacklist: String = ""
+    var dependences: String = ""
+    var extensions: String = ""
+    var subBefore: String = ""
+    var subAfter: String = ""
+    var proxy: String = ""
+    var autoAddCron: Int = 0
+    var autoDelCron: Int = 0
+    var logPath: String = ""
+
+    var displayName: String { alias.isEmpty ? name : alias }
+    var isEnabled: Bool { isDisabled != 1 }
+
+    var statusLabel: String {
+        if isDisabled == 1 { return "已禁用" }
+        switch status {
+        case 0: return "运行中"
+        case 3: return "排队中"
+        default: return "空闲"
+        }
+    }
+
+    var typeLabel: String {
+        switch type {
+        case "public-repo": return "公开仓库"
+        case "private-repo": return "私有仓库"
+        case "file": return "文件"
+        default: return type.isEmpty ? "仓库" : type
+        }
+    }
+}
+
+extension Subscription: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case _id = "id", name, alias, type, scheduleType = "schedule_type"
+        case schedule, url, status, isDisabled = "is_disabled"
+        case branch, whitelist, blacklist, dependences, extensions
+        case subBefore = "sub_before", subAfter = "sub_after"
+        case proxy, autoAddCron = "autoAddCron", autoDelCron = "autoDelCron"
+        case logPath = "log_path"
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        _id = (try? c.decodeIfPresent(Int.self, forKey: ._id)) ?? 0
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        alias = (try? c.decodeIfPresent(String.self, forKey: .alias)) ?? ""
+        type = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? ""
+        scheduleType = (try? c.decodeIfPresent(String.self, forKey: .scheduleType)) ?? ""
+        schedule = (try? c.decodeIfPresent(String.self, forKey: .schedule)) ?? ""
+        url = (try? c.decodeIfPresent(String.self, forKey: .url)) ?? ""
+        status = (try? c.decodeIfPresent(Int.self, forKey: .status)) ?? 1
+        isDisabled = (try? c.decodeIfPresent(Int.self, forKey: .isDisabled)) ?? 0
+        branch = (try? c.decodeIfPresent(String.self, forKey: .branch)) ?? ""
+        whitelist = (try? c.decodeIfPresent(String.self, forKey: .whitelist)) ?? ""
+        blacklist = (try? c.decodeIfPresent(String.self, forKey: .blacklist)) ?? ""
+        dependences = (try? c.decodeIfPresent(String.self, forKey: .dependences)) ?? ""
+        extensions = (try? c.decodeIfPresent(String.self, forKey: .extensions)) ?? ""
+        subBefore = (try? c.decodeIfPresent(String.self, forKey: .subBefore)) ?? ""
+        subAfter = (try? c.decodeIfPresent(String.self, forKey: .subAfter)) ?? ""
+        proxy = (try? c.decodeIfPresent(String.self, forKey: .proxy)) ?? ""
+        autoAddCron = (try? c.decodeIfPresent(Int.self, forKey: .autoAddCron)) ?? 0
+        autoDelCron = (try? c.decodeIfPresent(Int.self, forKey: .autoDelCron)) ?? 0
+        logPath = (try? c.decodeIfPresent(String.self, forKey: .logPath)) ?? ""
+    }
+}
+
+// MARK: - Open API App (应用设置)
+
+struct AppItem: Identifiable, Hashable {
+    var id: Int { _id }
+    var _id: Int = 0
+    var name: String = ""
+    var scopes: [String] = []
+    var clientID: String = ""
+    var clientSecret: String = ""
+
+    var scopesText: String { scopes.isEmpty ? "（无）" : scopes.joined(separator: ", ") }
+}
+
+extension AppItem: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case _id = "id", name, scopes
+        case clientID = "client_id", clientSecret = "client_secret"
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        _id = (try? c.decodeIfPresent(Int.self, forKey: ._id)) ?? 0
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        scopes = (try? c.decodeIfPresent([String].self, forKey: .scopes)) ?? []
+        clientID = (try? c.decodeIfPresent(String.self, forKey: .clientID)) ?? ""
+        clientSecret = (try? c.decodeIfPresent(String.self, forKey: .clientSecret)) ?? ""
+    }
+}
+
+// MARK: - System config (系统设置)
+
+/// `GET /api/system/config` 返回 { ..., info: {...} }。info 内为各项配置。
+struct SystemConfig: Codable {
+    var id: Int?
+    var info: SystemConfigInfo?
+}
+
+struct SystemConfigInfo: Codable {
+    var timezone: String?
+    var logRemoveFrequency: Int?
+    var cronConcurrency: Int?
+    var dependenceProxy: String?
+    var nodeMirror: String?
+    var pythonMirror: String?
+    var linuxMirror: String?
+    var panelTitle: String?
+    var globalSshKey: String?
+}
+
+// MARK: - Panel info (关于 / GET /api/system)
+
+struct PanelInfo: Codable {
+    var version: String?
+    var branch: String?
+    var publishTime: Int?
+    var changeLog: String?
+    var changeLogLink: String?
+    var isInitialized: Bool?
+
+    var publishDateText: String? {
+        guard let t = publishTime, t > 0 else { return nil }
+        let d = Date(timeIntervalSince1970: TimeInterval(t))
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        return f.string(from: d)
+    }
+}

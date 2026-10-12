@@ -21,8 +21,18 @@ struct PanelTabView: View {
                         .tabItem { Label("任务", systemImage: "timer") }
                     EnvListView()
                         .tabItem { Label("变量", systemImage: "key") }
+                    ScriptListView()
+                        .tabItem { Label("脚本", systemImage: "folder") }
+                    DependencyListView()
+                        .tabItem { Label("依赖", systemImage: "square.stack.3d.up") }
+                    SubscriptionListView()
+                        .tabItem { Label("订阅", systemImage: "arrow.down.circle") }
+                    ConfigListView()
+                        .tabItem { Label("配置", systemImage: "gearshape") }
+                    AppListView()
+                        .tabItem { Label("应用", systemImage: "app.badge") }
                     SettingsView()
-                        .tabItem { Label("设置", systemImage: "gearshape") }
+                        .tabItem { Label("设置", systemImage: "gear") }
                 }
                 .environmentObject(session)
                 .overlay { if session.isBusy { LoadingOverlay() } }
