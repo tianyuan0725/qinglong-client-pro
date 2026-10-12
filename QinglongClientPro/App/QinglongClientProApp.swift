@@ -17,6 +17,7 @@ struct QinglongClientProApp: App {
                 .environmentObject(appState)
                 .environmentObject(appLock)
                 .environmentObject(updater)
+                .environmentObject(notifier)
                 .environment(\.sizeCategory, appState.contentSizeCategory)
                 .tint(qlBrandGreen)
                 .preferredColorScheme(appState.preferredColorScheme)

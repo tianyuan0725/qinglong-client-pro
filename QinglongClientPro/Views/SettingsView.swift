@@ -6,7 +6,7 @@ struct SystemSettingsView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var store: ConnectionStore
     @EnvironmentObject var appLock: AppLockManager
-    @StateObject private var notify = AppNotifyManager.shared
+    @EnvironmentObject var notify: AppNotifyManager
     @State private var showNotify = false
 
     private let schemes = ["system": "跟随系统", "light": "浅色", "dark": "深色"]

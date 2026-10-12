@@ -18,6 +18,7 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
     @Published var authorized = false
 
     private override init() {
+        super.init()
         // 注册 delegate：让 App 在前台时通知也以横幅形式弹出
         // （系统默认前台不展示通知）。
         UNUserNotificationCenter.current().delegate = self
