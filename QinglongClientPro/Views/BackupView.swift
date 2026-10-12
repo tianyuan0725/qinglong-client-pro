@@ -86,7 +86,7 @@ struct BackupView: View {
             } header: {
                 Text("iCloud")
             } footer: {
-                Text("将备份文件存储到 iCloud Drive，可在多设备间同步。需要已在系统「设置 → Apple ID → iCloud」中打开 iCloud 云盘。")
+                Text("将备份文件通过系统分享面板存储到 iCloud 云盘，可在多设备间同步。需要已在系统「设置 → Apple ID → iCloud」中打开 iCloud 云盘。")
                     .font(.caption)
             }
 
@@ -220,27 +220,58 @@ struct BackupView: View {
     }
 }
 
-/// iCloud 备份管理：展示本机备份文件，支持存入 iCloud Drive 目录。
+/// iCloud 备份管理：本机备份文件一键存储到 iCloud 云盘（经系统分享面板），
+/// 以及从 iCloud 云盘选择备份恢复。免签名 App 无 iCloud 容器权限，
+/// 因此走系统分享/文件选择器，由用户在分享面板中选择「存储到文件」→ iCloud Drive。
 struct ICloudBackupView: View {
+    @EnvironmentObject var session: PanelSession
     @Environment(\.dismiss) private var dismiss
     @State private var localFiles: [URL] = []
-    @State private var iCloudAvailable = false
+    @State private var shareURL: URL?
+    @State private var showZipPicker = false
+    @State private var alertTitle = ""
     @State private var alertMessage = ""
     @State private var showAlert = false
+    @State private var working = false
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
-                    HStack(spacing: 8) {
-                        Image(systemName: iCloudAvailable ? "checkmark.icloud" : "xmark.icloud")
-                            .foregroundStyle(iCloudAvailable ? qlBrandGreen : .secondary)
-                        Text(iCloudAvailable ? "iCloud 云盘可用" : "iCloud 云盘不可用")
-                            .font(.subheadline)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "externaldrive.connected.to.line.below")
+                                .foregroundStyle(qlBrandGreen)
+                            Text("通过「文件」App 同步到 iCloud 云盘")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        Text("1. 先在「文件备份」中导出 JSON 或 zip 备份\n2. 在下方列表中点「存储到 iCloud」\n3. 在分享面板中选择「存储到文件」→ iCloud Drive 或「文件」App 的 iCloud 云盘位置\n4. 换设备后在本页点「从 iCloud 恢复」即可")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                    .padding(.vertical, 4)
                 } footer: {
-                    Text("备份文件默认保存在 App 的「文件」容器中。打开系统「文件」App → 我的 iPhone → 青龙客户端Pro 即可导出到 iCloud 云盘。")
-                        .font(.caption)
+                    Text("需在系统「设置 → Apple ID → iCloud」中打开 iCloud 云盘，并允许「文件」App 使用 iCloud。")
+                        .font(caption2)
+                }
+
+                Section {
+                    Button {
+                        showZipPicker = true
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.down.icloud")
+                            Text("从 iCloud 云盘恢复（zip）")
+                            Spacer()
+                            if working { ProgressView() }
+                        }
+                    }
+                    .disabled(working)
+                } header: {
+                    Text("恢复")
+                } footer: {
+                    Text("会打开系统文件选择器，可从 iCloud 云盘中选择此前导出的面板数据 zip。恢复会覆盖面板现有数据，请谨慎操作。")
+                        .font(caption2)
                 }
 
                 Section("本机备份文件（\(localFiles.count)）") {
@@ -251,17 +282,26 @@ struct ICloudBackupView: View {
                     } else {
                         ForEach(localFiles, id: \.self) { url in
                             HStack(spacing: 10) {
-                                Image(systemName: "doc.zipper")
+                                Image(systemName: url.pathExtension == "zip" ? "doc.zipper" : "doc.text")
                                     .foregroundStyle(qlBrandGreen)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(url.lastPathComponent)
                                         .font(.subheadline)
                                         .lineLimit(1)
-                                    Text(url.path)
+                                    Text(url.pathExtension == "zip" ? "面板数据 zip" : "脚本与配置 JSON")
                                         .font(.caption2)
                                         .foregroundStyle(.tertiary)
                                         .lineLimit(1)
                                 }
+                                Spacer()
+                                Button {
+                                    shareURL = url
+                                } label: {
+                                    Label("存储到 iCloud", systemImage: "square.and.arrow.up")
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(qlBrandGreen)
                             }
                         }
                     }
@@ -273,18 +313,44 @@ struct ICloudBackupView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
             }
             .task { loadFiles() }
-            .alert("提示", isPresented: $showAlert) {
+            .fileImporter(isPresented: $showZipPicker, allowedContentTypes: [.zip, .data]) { result in
+                if case .success(let url) = result {
+                    let secured = url.startAccessingSecurityScopedResource()
+                    Task {
+                        defer { if secured { url.stopAccessingSecurityScopedResource() } }
+                        await restoreFromZip(url: url)
+                    }
+                }
+            }
+            .sheet(isPresented: Binding(get: { shareURL != nil }, set: { if !$0 { shareURL = nil } })) {
+                if let url = shareURL { ShareSheet(items: [url]) }
+            }
+            .alert(alertTitle, isPresented: $showAlert) {
                 Button("好") { }
             } message: { Text(alertMessage) }
         }
     }
 
     private func loadFiles() {
-        iCloudAvailable = FileManager.default.ubiquityIdentityToken != nil
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let files = (try? FileManager.default.contentsOfDirectory(at: docs, includingPropertiesForKeys: nil)) ?? []
         localFiles = files
             .filter { $0.pathExtension == "json" || $0.pathExtension == "zip" }
             .sorted { $0.lastPathComponent > $1.lastPathComponent }
+    }
+
+    private func restoreFromZip(url: URL) async {
+        working = true
+        defer { working = false }
+        do {
+            try await session.importPanelDataZip(url: url)
+            alertTitle = "恢复完成"
+            alertMessage = "面板数据已从 zip 恢复，建议重启面板容器生效。"
+            showAlert = true
+        } catch {
+            alertTitle = "恢复失败"
+            alertMessage = error.localizedDescription
+            showAlert = true
+        }
     }
 }

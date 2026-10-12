@@ -306,7 +306,7 @@ struct ProfileView: View {
                     navItem(title: "任务日志", icon: "doc.text", color: .blue) { TaskLogView() }
                     navItem(title: "登录日志", icon: "person.text.rectangle", color: .indigo) { LoginLogView() }
                     navItem(title: "应用设置", icon: "gearshape", color: .gray) { AppListView() }
-                    navItem(title: "通知设置", icon: "envelope", color: .red) { NotifySettingsView() }
+                    navItem(title: "系统通知", icon: "bell.badge", color: .red) { SystemNotifyView() }
                 }
                 GridRow {
                     navItem(title: "修改密码", icon: "lock", color: .orange) { ChangePasswordView() }

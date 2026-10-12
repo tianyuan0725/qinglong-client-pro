@@ -1,12 +1,10 @@
 import SwiftUI
-import LocalAuthentication
 
 struct PanelTabView: View {
     let connection: Connection
     @StateObject private var session: PanelSession
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var store: ConnectionStore
-    @EnvironmentObject var appLock: AppLockManager
 
     init(connection: Connection) {
         self.connection = connection
@@ -35,7 +33,6 @@ struct PanelTabView: View {
                     .environmentObject(session)
                     .environmentObject(appState)
                     .environmentObject(store)
-                    .environmentObject(appLock)
             }
         }
         .task { await session.login() }
@@ -48,7 +45,6 @@ struct LoginView: View {
     @EnvironmentObject var session: PanelSession
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var store: ConnectionStore
-    @EnvironmentObject var appLock: AppLockManager
 
     @State private var username = ""
     @State private var password = ""
@@ -163,21 +159,6 @@ struct LoginView: View {
             }
 
             QLPrimaryButton(title: "登 录", action: { Task { await session.login() } })
-
-            // FaceID 按钮（开启应用锁时才出现）
-            if appLock.enabled, appLock.biometryAvailable {
-                Button {
-                    Task { await appLock.authenticate(reason: "使用\(appLock.biometryName)解锁 APP") }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: appLock.biometryTypeIcon)
-                        Text("使用\(appLock.biometryName)解锁")
-                            .font(.footnote.weight(.medium))
-                    }
-                    .foregroundStyle(qlBrandGreen)
-                }
-                .padding(.top, 2)
-            }
         }
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
@@ -330,23 +311,6 @@ struct DotWaveBackground: View {
                 y += spacing
                 row += 1
             }
-        }
-    }
-}
-
-/// 应用锁生物识别类型图标（FaceID / TouchID）。
-extension AppLockManager {
-    var biometryTypeIcon: String {
-        let ctx = LAContext()
-        guard ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) else {
-            return "lock"
-        }
-        switch ctx.biometryType {
-        case .faceID: return "faceid"
-        case .touchID: return "touchid"
-        case .opticID: return "opticid"
-        case .none: return "lock"
-        @unknown default: return "lock"
         }
     }
 }

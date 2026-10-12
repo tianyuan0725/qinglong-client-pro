@@ -579,6 +579,38 @@ final class PanelSession: ObservableObject {
         } catch { lastError = error.localizedDescription; return false }
     }
 
+    // MARK: - 系统通知
+
+    /// 多渠道通知配置列表（nil = 面板不支持该接口，如青龙新版）。
+    @Published var notifyItems: [NotifyItem]?
+    /// 多渠道通知接口是否被面板支持（探测结果）。
+    @Published var notifyMultiSupported = false
+
+    /// 发送系统通知（经面板当前通知渠道）。
+    func sendSystemNotify(title: String, content: String) async -> Bool {
+        isBusy = true; defer { isBusy = false }
+        do { try await client.sendSystemNotify(title: title, content: content); return true }
+        catch { lastError = error.localizedDescription; return false }
+    }
+
+    /// 探测并加载多渠道通知配置（旧版面板）。
+    func loadNotifyItems() async {
+        do {
+            notifyItems = try await client.getNotifications()
+            notifyMultiSupported = true
+        } catch {
+            notifyItems = nil
+            notifyMultiSupported = false
+        }
+    }
+
+    /// 删除一个多渠道通知配置。
+    func deleteNotifyItem(_ item: NotifyItem) async -> Bool {
+        isBusy = true; defer { isBusy = false }
+        do { try await client.deleteNotifications(ids: [item.id]); await loadNotifyItems(); return true }
+        catch { lastError = error.localizedDescription; return false }
+    }
+
     func changeCredentials(username: String, password: String) async -> Bool {
         isBusy = true; defer { isBusy = false }
         do { try await client.updateUsernameAndPassword(username: username, password: password); return true }

@@ -897,3 +897,43 @@ struct ServerUpdateInfo: Decodable, Hashable {
         self.logUrl = nil
     }
 }
+
+// MARK: - 通知配置列表项 (GET /api/notifications，旧版面板多渠道通知)
+
+/// 多渠道通知配置项（青龙旧版 /api/notifications）。
+/// 新版面板已将该接口合并为用户级单一通知方式（/api/user/notification），
+/// 因此本模型的获取失败（404）即代表面板不支持多通知配置。
+struct NotifyItem: Identifiable, Decodable, Hashable {
+    var id: Int { itemId ?? 0 }
+    let itemId: Int?
+    let name: String?
+    let type: String?
+    let created: Double?
+    let modified: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case itemId = "id"
+        case name
+        case type
+        case created
+        case modified
+    }
+
+    var channel: NotifyChannel? {
+        guard let t = type else { return nil }
+        return NotifyChannel(rawValue: t)
+    }
+
+    var channelLabel: String {
+        channel?.label ?? type ?? "未知渠道"
+    }
+
+    var createdText: String {
+        guard let t = created else { return "—" }
+        let d = Date(timeIntervalSince1970: t / 1000)
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f.string(from: d)
+    }
+}

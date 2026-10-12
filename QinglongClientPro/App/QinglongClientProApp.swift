@@ -42,10 +42,15 @@ struct QinglongClientProApp: App {
 struct RootView: View {
     @EnvironmentObject var store: ConnectionStore
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var appLock: AppLockManager
 
     var body: some View {
         Group {
-            if let conn = appState.selected {
+            if appLock.isLocked {
+                // 应用锁定时：下层只渲染纯色背景，唯一界面是 AppLockOverlay 解锁页，
+                // 避免与面板登录页叠加出现「两个登录界面」。
+                Color(.systemGroupedBackground).ignoresSafeArea()
+            } else if let conn = appState.selected {
                 PanelTabView(connection: conn)
             } else {
                 ConnectionListView()

@@ -17,8 +17,16 @@ final class AppLockManager: ObservableObject {
     @Published var errorMessage: String?
     /// 是否正在验证中（按钮 loading）。
     @Published var authenticating = false
+    /// 延迟自动尝试验证的任务（冷启动/回前台用）。
+    private var autoAuthTask: Task<Void, Never>?
 
-    private let context = LAContext()
+    init() {
+        // 启动即锁定（若开启）：保证首帧就是解锁页，不会闪现下层登录页。
+        if enabled, biometryAvailable {
+            isLocked = true
+            scheduleAutoAuthenticate()
+        }
+    }
 
     // MARK: - 能力探测
 
@@ -56,19 +64,30 @@ final class AppLockManager: ObservableObject {
     /// 上次是否经历过后台（用于区分冷启动与回前台）。
     private var wentToBackground = false
 
-    /// 冷启动：若开启则立即锁定并验证。
+    /// 冷启动：若开启则立即显示锁定遮罩，并延迟自动尝试验证一次
+    /// （冷启动瞬间窗口尚未就绪，立即 evaluatePolicy 会稳定失败，需等首帧渲染后调用）。
     func lockIfNeededOnLaunch() {
         guard enabled, biometryAvailable else { return }
         isLocked = true
-        Task { await authenticate(reason: "使用\(biometryName)解锁 APP") }
+        scheduleAutoAuthenticate()
     }
 
-    /// 回前台：重新锁定并验证。
+    /// 回前台：重新锁定并延迟尝试验证。
     func lockOnForegroundIfEnabled() {
         guard enabled, biometryAvailable else { return }
         isLocked = true
         errorMessage = nil
-        Task { await authenticate(reason: "使用\(biometryName)解锁 APP") }
+        scheduleAutoAuthenticate()
+    }
+
+    /// 延迟 0.5s 自动尝试验证（等窗口就绪）；失败不影响，用户可点解锁页按钮重试。
+    private func scheduleAutoAuthenticate() {
+        autoAuthTask?.cancel()
+        autoAuthTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled, let self, self.isLocked else { return }
+            await self.authenticate(reason: "使用\(self.biometryName)解锁 APP")
+        }
     }
 
     /// App 进入后台时调用。
@@ -136,7 +155,8 @@ final class AppLockManager: ObservableObject {
     }
 }
 
-/// 应用锁遮罩 —— 覆盖在 Tab 页之上的全屏锁界面（参考 App 解锁卡片样式）。
+/// 应用锁遮罩 —— 应用锁定时全屏显示（此时下层只渲染纯色背景，不出现面板登录页），
+/// 验证通过后自动消失，露出下层的主界面/登录页。
 struct AppLockOverlay: View {
     @EnvironmentObject var lock: AppLockManager
 

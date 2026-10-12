@@ -797,4 +797,28 @@ final class APIClient {
         req.httpBody = body
         return req
     }
+
+    // MARK: - 系统通知 (PUT /api/system/notify)
+
+    /// 发送一条系统通知（经面板当前配置的通知渠道发出，用于测试）。
+    func sendSystemNotify(title: String, content: String) async throws {
+        let body = try jsonBody(["title": title, "content": content])
+        try ensureOK(try await request(path: "/system/notify", method: "PUT", body: body))
+    }
+
+    // MARK: - 多渠道通知配置 (旧版面板 /api/notifications；新版 404 即不支持)
+
+    /// 获取通知配置列表。面板返回 404/405 时抛 APIError.httpError，调用方据此判断是否支持。
+    func getNotifications() async throws -> [NotifyItem] {
+        let data = try await request(path: "/notifications", method: "GET")
+        guard let dataObj = try unwrap(data) else { return [] }
+        let re = try JSONSerialization.data(withJSONObject: dataArray(from: dataObj))
+        return (try? JSONDecoder().decode([NotifyItem].self, from: re)) ?? []
+    }
+
+    /// 删除通知配置（DELETE /api/notifications，body 为 id 数组）。
+    func deleteNotifications(ids: [Int]) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ids)
+        try ensureOK(try await request(path: "/notifications", method: "DELETE", body: body))
+    }
 }
