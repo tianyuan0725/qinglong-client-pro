@@ -22,6 +22,9 @@ final class AppLockManager: ObservableObject {
 
     init() {
         // 启动即锁定（若开启）：保证首帧就是解锁页，不会闪现下层登录页。
+        // 冷启动的锁定只在这里触发一次；.active 里绝不重复上锁，否则面容
+        // 对话框消失带来的 .active 会立刻重新锁定，陷入反复扫脸死循环。
+        // （冷启动瞬间窗口尚未就绪，立即 evaluatePolicy 会稳定失败，故延迟自动验证。）
         if enabled, biometryAvailable {
             isLocked = true
             scheduleAutoAuthenticate()
@@ -64,14 +67,6 @@ final class AppLockManager: ObservableObject {
     /// 上次是否经历过后台（用于区分冷启动与回前台）。
     private var wentToBackground = false
 
-    /// 冷启动：若开启则立即显示锁定遮罩，并延迟自动尝试验证一次
-    /// （冷启动瞬间窗口尚未就绪，立即 evaluatePolicy 会稳定失败，需等首帧渲染后调用）。
-    func lockIfNeededOnLaunch() {
-        guard enabled, biometryAvailable else { return }
-        isLocked = true
-        scheduleAutoAuthenticate()
-    }
-
     /// 回前台：重新锁定并延迟尝试验证。
     func lockOnForegroundIfEnabled() {
         guard enabled, biometryAvailable else { return }
@@ -85,7 +80,7 @@ final class AppLockManager: ObservableObject {
         autoAuthTask?.cancel()
         autoAuthTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 500_000_000)
-            guard !Task.isCancelled, let self, self.isLocked else { return }
+            guard !Task.isCancelled, let self, self.isLocked, self.enabled else { return }
             await self.authenticate(reason: "使用\(self.biometryName)解锁 APP")
         }
     }
@@ -95,20 +90,23 @@ final class AppLockManager: ObservableObject {
         wentToBackground = true
     }
 
-    /// App 变为活跃时调用：冷启动直接锁；从后台回来也锁。
+    /// App 变为活跃时调用：仅「从后台回来」需要重新锁定。
+    /// 冷启动锁定已在 init() 完成；面容对话框验证成功后消失同样会产生一次
+    /// .active，若按 !isLocked 重新上锁就会反复弹面容（v2.0.4 修复的死循环）。
     func handleDidBecomeActive() {
         guard enabled, biometryAvailable else { return }
         if wentToBackground {
             wentToBackground = false
             lockOnForegroundIfEnabled()
-        } else if !isLocked {
-            lockIfNeededOnLaunch()
         }
     }
 
     // MARK: - 验证
 
     /// 执行生物识别验证。成功则解除遮罩；失败保留遮罩并展示错误。
+    /// 注意：失败/取消路径绝不主动置 isLocked = true —— 验证时遮罩本来就在，
+    /// 而「验证成功后迟到的系统取消/错误」若强制上锁，会把已解锁的用户
+    /// 重新锁回去，造成反复扫脸（v2.0.4）。
     func authenticate(reason: String) async {
         guard !authenticating else { return }
         authenticating = true
@@ -123,12 +121,13 @@ final class AppLockManager: ObservableObject {
             if ok {
                 isLocked = false
                 errorMessage = nil
-            } else {
+            } else if isLocked {
                 errorMessage = "验证未通过，请重试"
             }
         } catch {
-            isLocked = true
-            errorMessage = errorMessageText(error)
+            if isLocked {
+                errorMessage = errorMessageText(error)
+            }
         }
     }
 
@@ -155,7 +154,7 @@ final class AppLockManager: ObservableObject {
     }
 }
 
-/// 应用锁遮罩 —— 应用锁定时全屏显示（此时下层只渲染纯色背景，不出现面板登录页），
+/// 应用锁遮罩 —— 应用锁定时全屏显示（下层内容常驻仅被隐藏，不出现面板登录页），
 /// 验证通过后自动消失，露出下层的主界面/登录页。
 struct AppLockOverlay: View {
     @EnvironmentObject var lock: AppLockManager
