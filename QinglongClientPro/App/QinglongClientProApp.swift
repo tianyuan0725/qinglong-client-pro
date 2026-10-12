@@ -46,16 +46,19 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if appLock.isLocked {
-                // 应用锁定时：下层只渲染纯色背景，唯一界面是 AppLockOverlay 解锁页，
-                // 避免与面板登录页叠加出现「两个登录界面」。
-                Color(.systemGroupedBackground).ignoresSafeArea()
-            } else if let conn = appState.selected {
+            // 注意：内容常驻，不随 appLock.isLocked 切换而增删分支。
+            // 锁定/解锁若整体替换视图树，PanelTabView 会被重建、
+            // @StateObject PanelSession 随之重置（token 丢失），
+            // 解锁后就会掉到面板登录页（v2.0.1 反馈的 bug）。
+            // 锁定时仅将内容整体隐藏（opacity 0），AppLockOverlay 是
+            // 不透明全屏遮罩，锁定期间用户只会看到解锁页。
+            if let conn = appState.selected {
                 PanelTabView(connection: conn)
             } else {
                 ConnectionListView()
             }
         }
+        .opacity(appLock.isLocked ? 0 : 1)
         .onAppear {
             // Auto-open the default panel if still present.
             if appState.selected == nil, !appState.defaultConnectionId.isEmpty,

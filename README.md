@@ -16,6 +16,7 @@
 |------|------|
 | 多面板管理 | 添加 / 编辑 / 删除多个青龙面板，可设默认面板自动连接，历史账号一键切换 |
 | 双认证方式 | ① 面板账号密码（`/api/user/login`）② 开放 API Client ID/Secret（`/api/apps/token` → `/open/*`） |
+| 会话保持 | 面板 token 存 Keychain，冷启动/解锁后自动恢复会话无需重登；应用锁锁定期间会话不销毁 |
 | 两步验证 | 面板开启 2FA 时自动跳验证码页（`PUT /api/user/two-factor/login`） |
 | FaceID 应用锁 | 启动 / 回前台需生物识别验证（`LocalAuthentication`），锁定时全屏单一解锁界面 |
 | 主题 | 浅色 / 深色 / 跟随系统 |

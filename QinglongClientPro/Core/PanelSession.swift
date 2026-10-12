@@ -15,6 +15,18 @@ final class PanelSession: ObservableObject {
     @Published var isBusy = false
     /// 是否需要两步验证码（普通登录返回 code 420）。
     @Published var needsTwoFactor = false
+    /// 正在用保存的 token 恢复会话（冷启动首帧占位，避免空界面闪现）。
+    @Published var isRestoring = false
+
+    /// 连接存储（登录成功后回写登录页修改过的凭据）。由 PanelTabView 挂载。
+    weak var store: ConnectionStore?
+
+    /// 本次登录使用的凭据（登录页可能修改过，2FA 二次登录需复用）。
+    private var pendingUsername: String?
+    private var pendingPassword: String?
+
+    /// 面板 token 在 Keychain 中的账号键（按连接 id 隔离）。
+    private var tokenAccount: String { "qlpro_token_\(connection.id)" }
 
     @Published var systemInfo: SystemInfo?
     @Published var crons: [CronTask] = []
@@ -52,21 +64,37 @@ final class PanelSession: ObservableObject {
             fatalError("Invalid base URL for connection: \(connection.baseURLString)")
         }
         self.client = APIClient(baseURL: url, apiPrefix: connection.apiPrefix)
+        // 恢复上次保存的面板 token：App 被系统杀掉后冷启动可免重新登录。
+        // 这里乐观置位，restoreSession() 会用轻量接口校验，失效则回退登录页。
+        if let data = KeychainHelper.load(account: "qlpro_token_\(connection.id)"),
+           let token = String(data: data, encoding: .utf8), !token.isEmpty {
+            client.token = token
+            isAuthenticated = true
+            isRestoring = true
+        }
     }
 
     // MARK: - Lifecycle
 
-    func login() async {
+    /// 登录。传入登录页修改过的凭据（为空则用连接保存的凭据）。
+    func login(username: String? = nil, password: String? = nil) async {
         needsTwoFactor = false
+        // 开放 API 认证不使用账号密码，始终走连接的 Client ID/Secret
+        let user = connection.authType == .user ? (username ?? connection.username) : connection.username
+        let pass = connection.authType == .user ? (password ?? connection.password) : connection.password
+        pendingUsername = user
+        pendingPassword = pass
         do {
             let token = try await client.authenticate(
                 authType: connection.authType,
-                username: connection.username,
-                password: connection.password,
+                username: user,
+                password: pass,
                 clientID: connection.clientID,
                 clientSecret: connection.clientSecret
             )
             client.token = token
+            persistToken(token)
+            persistCredentialsIfChanged(username: user, password: pass)
             isAuthenticated = true
             await loadAll()
         } catch APIError.twoFactorRequired {
@@ -79,19 +107,75 @@ final class PanelSession: ObservableObject {
 
     /// 两步验证码登录（面板开启 2FA 时）。
     func loginWithTwoFactor(code: String) async {
+        let user = pendingUsername ?? connection.username
+        let pass = pendingPassword ?? connection.password
         do {
             let token = try await client.twoFactorLogin(
                 code: code,
-                username: connection.username,
-                password: connection.password
+                username: user,
+                password: pass
             )
             client.token = token
+            persistToken(token)
+            persistCredentialsIfChanged(username: user, password: pass)
             isAuthenticated = true
             needsTwoFactor = false
             await loadAll()
         } catch {
             authError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+    }
+
+    // MARK: - 会话恢复（冷启动免登录）
+
+    /// 是否保存了可恢复的面板 token。
+    var hasStoredToken: Bool {
+        KeychainHelper.load(account: tokenAccount) != nil
+    }
+
+    /// 用保存的 token 恢复会话：
+    /// - 校验有效 → 直接加载数据，无登录页
+    /// - token 失效（401 等）→ 清除并回退账号密码登录
+    /// - 网络错误 → 保留 token，回登录页展示错误（用户可重试）
+    func restoreSession() async {
+        isRestoring = true
+        defer { isRestoring = false }
+        guard let data = KeychainHelper.load(account: tokenAccount),
+              let token = String(data: data, encoding: .utf8), !token.isEmpty else {
+            await login()
+            return
+        }
+        client.token = token
+        do {
+            _ = try await client.getSystem() // 轻量接口校验 token 是否仍有效
+            isAuthenticated = true
+            await loadAll()
+        } catch let error as URLError {
+            isAuthenticated = false
+            authError = "网络错误：\(error.localizedDescription)"
+        } catch {
+            clearStoredToken()
+            client.token = nil
+            await login()
+        }
+    }
+
+    private func persistToken(_ token: String) {
+        KeychainHelper.save(Data(token.utf8), account: tokenAccount)
+    }
+
+    private func clearStoredToken() {
+        KeychainHelper.delete(account: tokenAccount)
+    }
+
+    /// 登录页修改过凭据且登录成功时，回写到连接存储（之后冷启动自动登录用）。
+    private func persistCredentialsIfChanged(username: String, password: String) {
+        guard let store, connection.authType == .user else { return }
+        guard username != connection.username || password != connection.password else { return }
+        var updated = connection
+        updated.username = username
+        updated.password = password
+        store.save(updated)
     }
 
     func loadAll() async {

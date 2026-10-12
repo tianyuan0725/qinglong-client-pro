@@ -13,7 +13,9 @@ struct PanelTabView: View {
 
     var body: some View {
         Group {
-            if session.isAuthenticated {
+            if session.isRestoring {
+                restoringView
+            } else if session.isAuthenticated {
                 TabView {
                     CronListView()
                         .tabItem { Label("定时任务", systemImage: "list.bullet.rectangle") }
@@ -35,7 +37,28 @@ struct PanelTabView: View {
                     .environmentObject(store)
             }
         }
-        .task { await session.login() }
+        .task {
+            // 先挂载 store：登录成功后回写登录页修改过的凭据
+            session.store = store
+            if session.hasStoredToken {
+                await session.restoreSession()
+            } else {
+                await session.login()
+            }
+        }
+    }
+
+    /// 冷启动用保存的 token 恢复会话时的占位视图。
+    private var restoringView: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+                .controlSize(.regular)
+            Text("正在连接面板…")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
     }
 }
 
@@ -139,7 +162,7 @@ struct LoginView: View {
                         .autocorrectionDisabled()
                         .focused($focusedField, equals: .password)
                         .submitLabel(.go)
-                        .onSubmit { Task { await session.login() } }
+                        .onSubmit { Task { await session.login(username: username, password: password) } }
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 48)
@@ -158,7 +181,7 @@ struct LoginView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            QLPrimaryButton(title: "登 录", action: { Task { await session.login() } })
+            QLPrimaryButton(title: "登 录", action: { Task { await session.login(username: username, password: password) } })
         }
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
