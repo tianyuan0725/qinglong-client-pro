@@ -387,3 +387,53 @@ struct ScriptAddToTaskSheet: View {
         if ok { saved = true } else { failed = true }
     }
 }
+
+struct ScriptCreateSheet: View {
+    @EnvironmentObject var session: PanelSession
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var isDir = false
+    @State private var content = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("类型") {
+                    Picker("类型", selection: $isDir) {
+                        Text("文件").tag(false)
+                        Text("目录").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                Section("名称") {
+                    TextField("例如 task.js / myfolder", text: $name)
+                }
+                if !isDir {
+                    Section("内容（可留空）") {
+                        TextEditor(text: $content)
+                            .frame(minHeight: 160)
+                            .font(.system(.footnote, design: .monospaced))
+                    }
+                }
+            }
+            .navigationTitle(isDir ? "新建目录" : "新建文件")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("创建") {
+                        let n = name.trimmingCharacters(in: .whitespaces)
+                        guard !n.isEmpty else { return }
+                        Task {
+                            let ok = isDir
+                                ? await session.makeDir(path: session.scriptPath, dirname: n)
+                                : await session.createFile(path: session.scriptPath, filename: n, content: content)
+                            if ok { dismiss() }
+                        }
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || session.isBusy)
+                }
+            }
+        }
+    }
+}

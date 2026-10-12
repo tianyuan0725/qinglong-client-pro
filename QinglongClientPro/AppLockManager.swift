@@ -24,7 +24,7 @@ final class AppLockManager: ObservableObject {
 
     /// 设备是否支持生物识别（FaceID / TouchID）。
     var biometryAvailable: Bool {
-        var ctx = LAContext()
+        let ctx = LAContext()
         var error: NSError?
         return ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
     }
@@ -39,6 +39,7 @@ final class AppLockManager: ObservableObject {
         case .faceID: return "面容 ID"
         case .touchID: return "触控 ID"
         case .opticID: return "Optics ID"
+        case .none: return "生物识别"
         @unknown default: return "生物识别"
         }
     }

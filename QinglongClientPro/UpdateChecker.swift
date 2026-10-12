@@ -67,8 +67,8 @@ final class UpdateChecker: ObservableObject {
                 releaseURL = URL(string: html)
             }
             hasUpdate = versionCompare(tag, currentVersion) > 0
-        } catch {
-            error = error.localizedDescription
+        } catch let e {
+            error = e.localizedDescription
         }
     }
 

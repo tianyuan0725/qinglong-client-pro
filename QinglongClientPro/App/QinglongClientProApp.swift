@@ -25,7 +25,7 @@ struct QinglongClientProApp: App {
                     }
                 }
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase) { phase in
             switch phase {
             case .active:
                 // 冷启动首帧 active + 回前台统一入口（内部区分冷/热）

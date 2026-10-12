@@ -1,4 +1,5 @@
 import SwiftUI
+import LocalAuthentication
 
 struct PanelTabView: View {
     let connection: Connection
@@ -210,7 +211,7 @@ struct LoginView: View {
                     .focused($focusedField, equals: .code)
                     .submitLabel(.go)
                     .onSubmit { Task { await session.loginWithTwoFactor(code: twoFactorCode) } }
-                    .onChange(of: twoFactorCode) { _, v in
+                    .onChange(of: twoFactorCode) { v in
                         if v.count > 6 { twoFactorCode = String(v.prefix(6)) }
                     }
             }
@@ -306,19 +307,23 @@ struct DotWaveBackground: View {
             let dotColor = Color(red: 0x49 / 255, green: 0x92 / 255, blue: 0xFF / 255)
             let spacing: CGFloat = 26
             let dotSize: CGFloat = 3.2
+            let width = Double(size.width)
             var row = 0
             var y: CGFloat = spacing * 0.5
             while y < size.height + spacing {
-                var x: CGFloat = spacing * 0.5 + (row % 2 == 0 ? 0 : spacing / 2)
+                let rowOffset: CGFloat = (row % 2 == 0) ? 0 : spacing / 2
+                var x: CGFloat = spacing * 0.5 + rowOffset
                 while x < size.width + spacing {
                     // 波浪偏移：正弦曲线，中部偏高、两端偏低
-                    let wave = sin((x / size.width) * .pi * 2.2 - Double(row) * 0.55)
+                    let phase = Double(x) / width * Double.pi * 2.2 - Double(row) * 0.55
+                    let wave = sin(phase)
                     let dy = wave * 26
-                    let rect = CGRect(x: x - dotSize / 2, y: y + CGFloat(dy) - dotSize / 2,
-                                      width: dotSize, height: dotSize)
                     // 靠近波浪中心线透明度更高，边缘渐隐
-                    let distFromWave = abs(Double(dy)) / 26.0
+                    let distFromWave = abs(wave)
                     let alpha = max(0.08, 0.5 - distFromWave * 0.55)
+                    let center = CGPoint(x: x, y: y + dy)
+                    let rect = CGRect(x: center.x - dotSize / 2, y: center.y - dotSize / 2,
+                                      width: dotSize, height: dotSize)
                     ctx.fill(Path(ellipseIn: rect), with: .color(dotColor.opacity(alpha)))
                     x += spacing
                 }
@@ -339,7 +344,9 @@ extension AppLockManager {
         switch ctx.biometryType {
         case .faceID: return "faceid"
         case .touchID: return "touchid"
-        default: return "lock"
+        case .opticID: return "opticid"
+        case .none: return "lock"
+        @unknown default: return "lock"
         }
     }
 }

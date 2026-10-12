@@ -726,11 +726,11 @@ final class APIClient {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         var payload = Data()
-        payload.append("--\(boundary)\r\n")
-        payload.append("Content-Disposition: form-data; name=\"data\"; filename=\"backup.zip\"\r\n")
-        payload.append("Content-Type: application/zip\r\n\r\n")
+        payload.append("--\(boundary)\r\n".data(using: .utf8)!)
+        payload.append("Content-Disposition: form-data; name=\"data\"; filename=\"backup.zip\"\r\n".data(using: .utf8)!)
+        payload.append("Content-Type: application/zip\r\n\r\n".data(using: .utf8)!)
         payload.append(fileData)
-        payload.append("\r\n--\(boundary)--\r\n")
+        payload.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
         req.httpBody = payload
 
         let (data, resp) = try await session.data(for: req)
