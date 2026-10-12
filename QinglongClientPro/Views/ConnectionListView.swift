@@ -50,6 +50,12 @@ struct ConnectionListView: View {
                                 if appState.defaultConnectionId == conn.id {
                                     appState.defaultConnectionId = ""
                                 }
+                                if appState.lastConnectionId == conn.id {
+                                    appState.lastConnectionId = ""
+                                }
+                                if appState.selected?.id == conn.id {
+                                    appState.selected = nil
+                                }
                             } label: { Label("删除", systemImage: "trash") }
                         }
                     }
@@ -70,6 +76,9 @@ struct ConnectionListView: View {
                             }
                         }
                     }
+                    Text("关闭时将自动恢复上次使用的面板；仅配置一个面板时始终直接进入。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } header: { Text("通用") } footer: {
                     Text("面板地址、账号与密码均仅保存在本机 Keychain，不会上传任何服务器。")
                         .font(.caption)

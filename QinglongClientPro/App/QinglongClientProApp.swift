@@ -60,11 +60,39 @@ struct RootView: View {
         }
         .opacity(appLock.isLocked ? 0 : 1)
         .onAppear {
-            // Auto-open the default panel if still present.
-            if appState.selected == nil, !appState.defaultConnectionId.isEmpty,
-               let conn = store.connection(withId: appState.defaultConnectionId) {
-                appState.selected = conn
-            }
+            autoOpenPanelIfNeeded()
+        }
+    }
+
+    /// 启动时的面板恢复策略（v2.0.3）：
+    /// ① 「启动时自动连接默认面板」开关打开 → 进默认面板；
+    /// ② 否则恢复上次使用的面板（含解锁后冷启动场景）；
+    /// ③ 仅配置了一个面板 → 直接进入（无需任何开关，重装后也生效，
+    ///    因为面板列表存 Keychain、不随 UserDefaults 丢失）。
+    /// 用户录屏反馈：解锁后落在连接列表页，配好面板却每次都要手点。
+    private func autoOpenPanelIfNeeded() {
+        // 清理已删除面板的悬空引用（否则开关显示开、选择器却空白）
+        if !appState.defaultConnectionId.isEmpty,
+           store.connection(withId: appState.defaultConnectionId) == nil {
+            appState.defaultConnectionId = ""
+        }
+        if !appState.lastConnectionId.isEmpty,
+           store.connection(withId: appState.lastConnectionId) == nil {
+            appState.lastConnectionId = ""
+        }
+        guard appState.selected == nil else { return }
+        if !appState.defaultConnectionId.isEmpty,
+           let conn = store.connection(withId: appState.defaultConnectionId) {
+            appState.selected = conn
+            return
+        }
+        if !appState.lastConnectionId.isEmpty,
+           let conn = store.connection(withId: appState.lastConnectionId) {
+            appState.selected = conn
+            return
+        }
+        if store.connections.count == 1 {
+            appState.selected = store.connections[0]
         }
     }
 }
