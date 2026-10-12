@@ -252,7 +252,7 @@ struct ICloudBackupView: View {
                     .padding(.vertical, 4)
                 } footer: {
                     Text("需在系统「设置 → Apple ID → iCloud」中打开 iCloud 云盘，并允许「文件」App 使用 iCloud。")
-                        .font(caption2)
+                        .font(.caption2)
                 }
 
                 Section {
@@ -271,7 +271,7 @@ struct ICloudBackupView: View {
                     Text("恢复")
                 } footer: {
                     Text("会打开系统文件选择器，可从 iCloud 云盘中选择此前导出的面板数据 zip。恢复会覆盖面板现有数据，请谨慎操作。")
-                        .font(caption2)
+                        .font(.caption2)
                 }
 
                 Section("本机备份文件（\(localFiles.count)）") {
