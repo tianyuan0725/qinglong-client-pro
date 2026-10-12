@@ -21,7 +21,7 @@ run_id = None
 for _ in range(10):
     runs = api('/repos/tianyuan0725/qinglong-client-pro/actions/runs?per_page=3')
     for r in runs.get('workflow_runs', []):
-        if r.get('head_sha', '').startswith('8c622022'):
+        if r.get('head_sha', '').startswith('e9427c7c'):
             run_id = r['id']
             break
     if run_id:
