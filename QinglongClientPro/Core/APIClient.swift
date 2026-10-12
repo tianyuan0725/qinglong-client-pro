@@ -118,6 +118,10 @@ final class APIClient {
     private func extractToken(from data: Data, key: String) throws -> String {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw APIError.invalidResponse }
         let code = json["code"] as? Int ?? 200
+        if code == 420 {
+            // 面板开启两步验证：密码正确但需二次验证码
+            throw APIError.twoFactorRequired
+        }
         if code != 200 {
             throw APIError.serverMessage(json["message"] as? String ?? "认证失败")
         }
@@ -648,5 +652,149 @@ final class APIClient {
     func deleteLogFile(path: String, file: String) async throws {
         let body = try jsonBody(["filename": file, "path": path])
         try ensureOK(try await request(path: "/logs", method: "DELETE", body: body))
+    }
+
+    /// 两步验证 2FA (PUT /api/user/two-factor/login)
+
+    /// 普通登录返回 code 420（密码正确但开启两步验证）后，携带 TOTP 验证码完成登录。
+    /// 注意：该端点限流 20 次/15 分钟。
+    func twoFactorLogin(code: String, username: String, password: String) async throws -> String {
+        let body = try jsonBody(["code": code, "username": username, "password": password])
+        let data = try await request(path: "/user/two-factor/login", method: "PUT", body: body, authenticated: false, prefixOverride: "/api")
+        return try extractToken(from: data, key: "token")
+    }
+
+    // MARK: - 脚本下载 / 历史版本 (v2.20+)
+
+    /// 下载脚本文件二进制内容（POST /api/scripts/download，body {filename, path}）。
+    func downloadScript(path: String, filename: String) async throws -> Data {
+        let body = try jsonBody(["filename": filename, "path": path])
+        return try await request(path: "/scripts/download", method: "POST", body: body)
+    }
+
+    /// 脚本历史版本列表（GET /api/scripts/history?path=&filename=）。
+    func getScriptHistory(path: String, filename: String) async throws -> [ScriptHistoryItem] {
+        var q = [URLQueryItem(name: "filename", value: filename)]
+        if !path.isEmpty { q.append(URLQueryItem(name: "path", value: path)) }
+        let data = try await requestQ(path: "/scripts/history", method: "GET", query: q)
+        guard let dataObj = try unwrap(data) else { return [] }
+        let re = try JSONSerialization.data(withJSONObject: dataArray(from: dataObj))
+        return (try? JSONDecoder().decode([ScriptHistoryItem].self, from: re)) ?? []
+    }
+
+    /// 单个历史版本内容（GET /api/scripts/history/detail?path=&filename=&id=<uuid>）。
+    func getScriptHistoryDetail(path: String, filename: String, id: String) async throws -> String {
+        var q = [URLQueryItem(name: "filename", value: filename), URLQueryItem(name: "id", value: id)]
+        if !path.isEmpty { q.append(URLQueryItem(name: "path", value: path)) }
+        let data = try await requestQ(path: "/scripts/history/detail", method: "GET", query: q)
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let text = obj["data"] as? String { return text }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    /// 恢复到指定历史版本（PUT /api/scripts/history/restore，id 为 UUID，expectedHash 为 64 位 hex）。
+    func restoreScriptHistory(path: String, filename: String, id: String, expectedHash: String) async throws {
+        let body = try jsonBody([
+            "path": path,
+            "filename": filename,
+            "id": id,
+            "expectedHash": expectedHash,
+        ])
+        try ensureOK(try await request(path: "/scripts/history/restore", method: "PUT", body: body))
+    }
+
+    // MARK: - 面板数据导出 / 导入 (v2.20+)
+
+    /// 导出面板数据 zip 二进制（PUT /api/system/data/export）。types 为空表示全部。
+    func exportPanelData(types: [String] = []) async throws -> Data {
+        var body: Data?
+        if !types.isEmpty {
+            body = try jsonBody(["type": types])
+        }
+        return try await request(path: "/system/data/export", method: "PUT", body: body)
+    }
+
+    /// 导入面板数据 zip（PUT /api/system/data/import，multipart 字段名 data）。
+    func importPanelData(fileURL: URL) async throws {
+        guard let fileData = try? Data(contentsOf: fileURL) else { throw APIError.invalidResponse }
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var req = URLRequest(url: exportImportURL)
+        req.httpMethod = "PUT"
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        req.setValue("QinglongClientPro/2.0", forHTTPHeaderField: "User-Agent")
+        if let token {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        var payload = Data()
+        payload.append("--\(boundary)\r\n")
+        payload.append("Content-Disposition: form-data; name=\"data\"; filename=\"backup.zip\"\r\n")
+        payload.append("Content-Type: application/zip\r\n\r\n")
+        payload.append(fileData)
+        payload.append("\r\n--\(boundary)--\r\n")
+        req.httpBody = payload
+
+        let (data, resp) = try await session.data(for: req)
+        if let http = resp as? HTTPURLResponse, http.statusCode >= 400 {
+            throw APIError.httpError(http.statusCode)
+        }
+        try ensureOK(data)
+    }
+
+    private var exportImportURL: URL {
+        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) ?? URLComponents()
+        components.path = (components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path)
+            + (apiPrefix + "/system/data/import").replacingOccurrences(of: "//", with: "/")
+        return components.url ?? baseURL
+    }
+
+    // MARK: - 版本检查 / 面板升级 (v2.20+)
+
+    /// 检查面板是否有新版本（PUT /api/system/update-check）。
+    func checkServerUpdate() async throws -> ServerUpdateInfo {
+        let data = try await request(path: "/system/update-check", method: "PUT")
+        guard let dataObj = try unwrap(data) else { return ServerUpdateInfo() }
+        let re = try JSONSerialization.data(withJSONObject: dataObj)
+        return (try? JSONDecoder().decode(ServerUpdateInfo.self, from: re)) ?? ServerUpdateInfo()
+    }
+
+    /// 触发面板自身升级（PUT /api/system/update）。
+    func updatePanelSystem() async throws {
+        try ensureOK(try await request(path: "/system/update", method: "PUT"))
+    }
+
+    // MARK: - 系统命令执行 (v2.20+，流式)
+
+    /// 执行系统命令（PUT /api/system/command-run）。
+    /// 响应体为流式输出（octet-stream），响应头 QL-Task-Pid 为进程号、QL-Task-Log 为日志路径。
+    /// 注意：URLSession 会等流结束才返回完整数据，仅适合短命令；长命令可先拿 pid 再 stop。
+    func runCommand(_ command: String) async throws -> (pid: String, logPath: String, output: String) {
+        let body = try jsonBody(["command": command])
+        let (data, resp) = try await session.data(for: buildCommandRequest(path: "/system/command-run", method: "PUT", body: body))
+        guard let http = resp as? HTTPURLResponse else { throw APIError.invalidResponse }
+        let pid = http.value(forHTTPHeaderField: "QL-Task-Pid") ?? ""
+        let logPath = http.value(forHTTPHeaderField: "QL-Task-Log") ?? ""
+        return (pid, logPath, String(data: data, encoding: .utf8) ?? "")
+    }
+
+    /// 停止正在执行的命令（PUT /api/system/command-stop，pid 为数字）。
+    func stopCommand(_ command: String, pid: String) async throws {
+        let pidNum = Int(pid) ?? 0
+        let body = try jsonBody(["command": command, "pid": pidNum])
+        try ensureOK(try await request(path: "/system/command-stop", method: "PUT", body: body))
+    }
+
+    private func buildCommandRequest(path: String, method: String, body: Data?) -> URLRequest {
+        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        let fullPath = (apiPrefix + path).replacingOccurrences(of: "//", with: "/")
+        components.path = (components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path) + fullPath
+        var req = URLRequest(url: components.url ?? baseURL)
+        req.httpMethod = method
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("QinglongClientPro/2.0", forHTTPHeaderField: "User-Agent")
+        if let token {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        req.httpBody = body
+        return req
     }
 }

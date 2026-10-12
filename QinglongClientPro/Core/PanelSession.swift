@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SwiftUI
 
@@ -12,6 +13,8 @@ final class PanelSession: ObservableObject {
     @Published var isAuthenticated = false
     @Published var authError: String?
     @Published var isBusy = false
+    /// 是否需要两步验证码（普通登录返回 code 420）。
+    @Published var needsTwoFactor = false
 
     @Published var systemInfo: SystemInfo?
     @Published var crons: [CronTask] = []
@@ -54,6 +57,7 @@ final class PanelSession: ObservableObject {
     // MARK: - Lifecycle
 
     func login() async {
+        needsTwoFactor = false
         do {
             let token = try await client.authenticate(
                 authType: connection.authType,
@@ -64,6 +68,26 @@ final class PanelSession: ObservableObject {
             )
             client.token = token
             isAuthenticated = true
+            await loadAll()
+        } catch APIError.twoFactorRequired {
+            needsTwoFactor = true
+            authError = nil
+        } catch {
+            authError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    /// 两步验证码登录（面板开启 2FA 时）。
+    func loginWithTwoFactor(code: String) async {
+        do {
+            let token = try await client.twoFactorLogin(
+                code: code,
+                username: connection.username,
+                password: connection.password
+            )
+            client.token = token
+            isAuthenticated = true
+            needsTwoFactor = false
             await loadAll()
         } catch {
             authError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -178,6 +202,68 @@ final class PanelSession: ObservableObject {
         isBusy = true; defer { isBusy = false }
         do { return try await client.runScript(path: path, filename: filename, content: content) }
         catch { lastError = error.localizedDescription; return "" }
+    }
+
+    // MARK: - 脚本批量操作（多选模式，循环单文件接口）
+
+    /// 批量删除文件（顺序执行，逐个删除）。
+    func removeFiles(nodes: [FileNode]) async {
+        isBusy = true; defer { isBusy = false }
+        for node in nodes {
+            do { try await client.deleteFile(path: node.parent, filename: node.title) }
+            catch { lastError = "删除 \(node.title) 失败：\(error.localizedDescription)" }
+        }
+        await loadFiles()
+    }
+
+    /// 批量运行文件（逐个启动，返回成功数量）。
+    @discardableResult
+    func runFiles(nodes: [FileNode]) async -> Int {
+        isBusy = true; defer { isBusy = false }
+        var ok = 0
+        for node in nodes {
+            do {
+                let content = try await client.getFileContent(path: node.parent, file: node.title)
+                _ = try await client.runScript(path: node.parent, filename: node.title, content: content)
+                ok += 1
+            } catch { lastError = "运行 \(node.title) 失败：\(error.localizedDescription)" }
+        }
+        return ok
+    }
+
+    // MARK: - 脚本下载 / 历史版本
+
+    /// 下载脚本二进制（用于保存到本地 / 分享）。
+    func downloadScriptData(path: String, filename: String) async -> Data? {
+        do { return try await client.downloadScript(path: path, filename: filename) }
+        catch { lastError = error.localizedDescription; return nil }
+    }
+
+    /// 加载脚本历史版本列表。
+    func loadScriptHistory(path: String, filename: String) async -> [ScriptHistoryItem] {
+        do { return try await client.getScriptHistory(path: path, filename: filename) }
+        catch { lastError = error.localizedDescription; return [] }
+    }
+
+    /// 读取单个历史版本内容。
+    func loadScriptHistoryDetail(path: String, filename: String, id: String) async -> String {
+        do { return try await client.getScriptHistoryDetail(path: path, filename: filename, id: id) }
+        catch { lastError = error.localizedDescription; return "" }
+    }
+
+    /// 恢复历史版本：先下载当前文件计算 SHA-256（expectedHash），再调 restore。
+    func restoreScriptHistory(path: String, filename: String, id: String) async -> Bool {
+        isBusy = true; defer { isBusy = false }
+        do {
+            // expectedHash = 当前文件内容的 SHA-256（64 hex）
+            let current = try await client.downloadScript(path: path, filename: filename)
+            let expectedHash = SHA256.hash(data: current).compactMap { String(format: "%02x", $0) }.joined()
+            try await client.restoreScriptHistory(path: path, filename: filename, id: id, expectedHash: expectedHash)
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
     }
 
     // MARK: - 依赖管理
@@ -389,6 +475,49 @@ final class PanelSession: ObservableObject {
         do { try await client.saveCron(cron, isNew: isNew); await loadCrons(); return true }
         catch { lastError = error.localizedDescription; return false }
     }
+
+    /// 快速创建定时任务（从脚本「添加到任务」用）。
+    func createCron(command: String, schedule: String, name: String) async -> Bool {
+        let cron = CronTask(name: name, command: command, schedule: schedule)
+        return await saveCron(cron, isNew: true)
+    }
+
+    // MARK: - 面板数据导出 / 导入 (v2.20+)
+
+    /// 导出面板数据 zip（PUT /api/system/data/export），返回本机临时文件 URL。
+    func exportPanelDataZip(types: [String] = []) async throws -> URL {
+        let data = try await client.exportPanelData(types: types)
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let df = DateFormatter()
+        df.dateFormat = "yyyyMMdd_HHmmss"
+        df.locale = Locale(identifier: "en_US_POSIX")
+        let dest = docs.appendingPathComponent("qinglong_backup_\(df.string(from: Date())).zip")
+        try data.write(to: dest, options: .atomic)
+        return dest
+    }
+
+    /// 从 zip 恢复面板数据（PUT /api/system/data/import）。
+    func importPanelDataZip(url: URL) async throws {
+        try await client.importPanelData(fileURL: url)
+    }
+
+    // MARK: - 版本检查 / 面板升级 (v2.20+)
+
+    /// 检查面板是否有新版本。
+    func checkServerUpdate() async -> ServerUpdateInfo {
+        do { return try await client.checkServerUpdate() }
+        catch { lastError = error.localizedDescription; return ServerUpdateInfo() }
+    }
+
+    /// 触发面板自身升级。
+    func updatePanelSystem() async -> Bool {
+        isBusy = true; defer { isBusy = false }
+        do { try await client.updatePanelSystem(); return true }
+        catch { lastError = error.localizedDescription; return false }
+    }
+
+    /// 面板新版本信息（供「我的」页展示提示条）。
+    @Published var serverUpdate: ServerUpdateInfo?
 
     func deleteCron(_ ids: [String]) async {
         isBusy = true; defer { isBusy = false }

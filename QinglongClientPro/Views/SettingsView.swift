@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// 系统设置（面板级配置：标题 / 时区 / 清理 / 并发 / 代理 / 镜像）。
+/// 系统设置（面板级配置：标题 / 时区 / 清理 / 并发 / 代理 / 镜像 / 安全）。
 struct SystemSettingsView: View {
     @EnvironmentObject var session: PanelSession
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var store: ConnectionStore
+    @EnvironmentObject var appLock: AppLockManager
     @State private var showNotify = false
 
     private let schemes = ["system": "跟随系统", "light": "浅色", "dark": "深色"]
@@ -13,6 +14,18 @@ struct SystemSettingsView: View {
 
     var body: some View {
             List {
+                Section("安全") {
+                    Toggle(isOn: $appLock.enabled) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("使用Face ID解锁APP")
+                            Text(appLock.switchSubtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .disabled(!appLock.biometryAvailable)
+                }
+
                 Section("外观") {
                     Picker("主题", selection: $appState.colorSchemeRaw) {
                         ForEach(schemes.keys.sorted(by: { schemes[$0]! < schemes[$1]! }), id: \.self) { key in

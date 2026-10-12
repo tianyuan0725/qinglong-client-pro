@@ -313,6 +313,8 @@ enum APIError: LocalizedError {
     case invalidResponse
     case httpError(Int)
     case encoding
+    /// 两步验证（2FA）所需：普通登录密码正确但面板开启了两步验证，服务端返回 code 420。
+    case twoFactorRequired
 
     var errorDescription: String? {
         switch self {
@@ -322,6 +324,7 @@ enum APIError: LocalizedError {
         case .invalidResponse: return "无法解析服务器返回数据"
         case .httpError(let c): return "HTTP 错误 \(c)"
         case .encoding: return "请求参数编码失败"
+        case .twoFactorRequired: return "该账号开启了两步验证，请输入验证码"
         }
     }
 }
@@ -829,5 +832,68 @@ struct DepScanItem: Identifiable, Hashable {
         case 1: return "Python3"
         default: return "Linux"
         }
+    }
+}
+
+// MARK: - 脚本历史版本 (v2.20+ 新增)
+
+/// 脚本历史版本条目（GET /api/scripts/history）。id 为 UUID 字符串。
+struct ScriptHistoryItem: Identifiable, Decodable, Hashable {
+    var id: String { historyId ?? UUID().uuidString }
+    let historyId: String?
+    let filename: String?
+    let size: Double?
+    let createTime: Double?
+    let remark: String?
+
+    enum CodingKeys: String, CodingKey {
+        case historyId = "id"
+        case filename
+        case size
+        case createTime
+        case remark
+    }
+
+    var createTimeText: String {
+        guard let t = createTime else { return "—" }
+        let d = Date(timeIntervalSince1970: t / 1000)
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f.string(from: d)
+    }
+
+    var sizeText: String {
+        guard let s = size else { return "—" }
+        if s < 1024 { return "\(Int(s)) B" }
+        if s < 1024 * 1024 { return String(format: "%.1f KB", s / 1024) }
+        return String(format: "%.1f MB", s / 1024 / 1024)
+    }
+}
+
+// MARK: - 版本检查 (PUT /api/system/update-check)
+
+/// 服务端新版本信息（PUT /api/system/update-check）。
+struct ServerUpdateInfo: Decodable, Hashable {
+    let hasNewVersion: Bool
+    let lastVersion: String?
+    let latestVersion: String?
+    let currentVersion: String?
+    let logUrl: String?
+
+    enum CodingKeys: String, CodingKey {
+        case hasNewVersion
+        case lastVersion
+        case latestVersion
+        case currentVersion
+        case logUrl
+    }
+
+    init(hasNewVersion: Bool = false, lastVersion: String? = nil) {
+        self.hasNewVersion = hasNewVersion
+        self.lastVersion = lastVersion
+        self.latestVersion = nil
+        self.currentVersion = nil
+        self.logUrl = nil
     }
 }

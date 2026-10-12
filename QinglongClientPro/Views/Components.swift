@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Full-screen busy overlay used while a mutation is in flight.
 struct LoadingOverlay: View {
@@ -71,4 +72,23 @@ func masked(_ value: String, revealed: Bool) -> String {
     let head = value.prefix(3)
     let tail = value.suffix(3)
     return "\(head)••••••\(tail)"
+}
+
+// MARK: - 分享 / 导出
+
+/// 分享项（承载本地文件 URL，供 ShareSheet 使用）。
+struct ShareItem: Identifiable {
+    let id = UUID().uuidString
+    let url: URL
+}
+
+/// 系统分享面板（UIActivityViewController 的 SwiftUI 封装）。
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

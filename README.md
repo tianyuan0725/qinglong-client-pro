@@ -1,7 +1,9 @@
 # 青龙客户端 Pro (QinglongClientPro)
 
-原生 SwiftUI 编写的 **iOS 青龙面板客户端**，用于在手机上管理你自己的青龙面板：
-定时任务的运行 / 停止 / 启停 / 置顶 / 日志查看，环境变量管理，多面板切换，系统信息概览。
+原生 SwiftUI 编写的 **iOS 青龙面板客户端**，视觉与功能全面对标参考客户端
+「青龙客户端 3.0.0」，用于在手机上管理你自己的青龙面板：
+定时任务的运行 / 停止 / 启停 / 置顶 / 日志查看，环境变量管理，脚本管理，
+依赖管理，订阅管理，多面板切换，系统信息概览。
 
 > 适配青龙 2.x OpenAPI（[whyour/qinglong](https://github.com/whyour/qinglong)）。
 > 所有面板地址与凭证仅保存在本机 Keychain，不经过任何第三方服务器。
@@ -12,12 +14,25 @@
 
 | 模块 | 说明 |
 |------|------|
-| 多面板管理 | 添加 / 编辑 / 删除多个青龙面板，可设默认面板自动连接 |
+| 多面板管理 | 添加 / 编辑 / 删除多个青龙面板，可设默认面板自动连接，历史账号一键切换 |
 | 双认证方式 | ① 面板账号密码（`/api/user/login`）② 开放 API Client ID/Secret（`/api/apps/token` → `/open/*`） |
+| 两步验证 | 面板开启 2FA 时自动跳验证码页（`PUT /api/user/two-factor/login`） |
+| FaceID 应用锁 | 启动 / 回前台需生物识别验证（`LocalAuthentication`） |
+| 主题 | 浅色 / 深色 / 跟随系统 |
 | 概览 | 青龙版本、CPU / 内存 / 磁盘占用、运行时长、任务与变量统计、运行中任务列表 |
 | 定时任务 | 搜索、运行、停止、启用 / 禁用、置顶、新增 / 编辑 / 删除、实时日志（运行中自动刷新） |
 | 环境变量 | 搜索、新增 / 编辑 / 删除、启用 / 禁用、值默认打码可一键显示 |
+| 脚本管理 | 目录浏览 / 编辑 / 运行 / 重命名 / 删除、多选批量操作、下载到本机、历史版本恢复、一键添加到任务 |
+| 依赖管理 | Node / Python / Linux 依赖增删改、扫描缺失依赖一键补装 |
+| 订阅管理 | 订阅增删改、运行、日志 |
+| 配置文件 | 配置文件浏览 / 编辑 |
+| 应用设置 | OpenAPI 应用（Client ID/Secret）管理 |
+| 系统设置 | 标题 / 时区 / 日志清理 / 并发 / 代理 / 镜像、通知渠道、系统日志 |
+| 文件备份 | 本机 JSON 备份（脚本+配置）、面板数据 zip 导出 / 导入、iCloud 备份管理 |
+| 更新 | App 更新检查（GitHub Releases）、青龙服务端版本检查 + 一键升级 |
 | 安全 | 凭证存 Keychain；变量值默认遮蔽；支持 HTTP 内网面板（已放开 ATS） |
+
+> 原参考 App 的 VIP 功能（多账号、扫描依赖、字体大小、文件备份、账号排序）全部免费。
 
 ## 📁 项目结构
 
@@ -26,17 +41,20 @@ QinglongClientPro/
 ├── project.yml                     # XcodeGen 工程描述
 ├── .github/workflows/build.yml     # GitHub Actions 云构建 unsigned IPA
 └── QinglongClientPro/
-    ├── Info.plist                  # 已放开 ATS（支持 http 内网面板）
+    ├── Info.plist                  # 已放开 ATS + FaceID 用途 + 文件共享
     ├── Assets.xcassets/            # AppIcon（青龙盘钟图标）+ AccentColor
     ├── App/                        # App 入口 + RootView
+    ├── AppLockManager.swift        # FaceID 应用锁
+    ├── UpdateChecker.swift         # GitHub Releases 更新检查
+    ├── Theme.swift                 # 设计系统（品牌色 / 渐变 / 组件）
     ├── Core/
-    │   ├── Models.swift            # CronTask / EnvVar / SystemInfo / Connection
-    │   ├── APIClient.swift         # 青龙 REST 客户端（双认证）
+    │   ├── Models.swift            # CronTask / EnvVar / SystemInfo / Connection / ...
+    │   ├── APIClient.swift         # 青龙 REST 客户端（双认证 + 2FA + 新接口）
     │   ├── PanelSession.swift      # 单面板会话（数据 + 变更操作）
     │   ├── ConnectionStore.swift   # 多面板存储（Keychain）
     │   ├── KeychainHelper.swift    # Keychain 封装
     │   └── AppState.swift          # 全局状态 / 主题
-    └── Views/                      # 连接管理、概览、任务、变量、日志、设置
+    └── Views/                      # 登录页、连接管理、任务、变量、脚本、我的等
 ```
 
 ---
