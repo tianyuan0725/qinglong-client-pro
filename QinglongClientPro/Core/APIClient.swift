@@ -6,6 +6,13 @@ import Foundation
 ///  - **User login**: `POST /api/user/login` -> token, then call `/api/*` with `Bearer <token>`.
 ///  - **Open API**:   `POST /api/apps/token` (client_id + client_secret) -> access_token,
 ///                     then call `/open/*` with `Bearer <access_token>`.
+///
+/// Compatibility notes:
+///  - v2.20+ uses numeric ids and expects plain numeric arrays as mutation bodies
+///    (e.g. `PUT /crons/run` body is `[1,2,3]`). Older panels used Mongo string ids
+///    and `{"ids": [...]}` bodies. We detect and send both shapes accordingly.
+///  - v2.20+ `GET /api/crons` returns `{data: [...], total: n}`; older panels
+///    returned a plain array. Both are handled.
 @MainActor
 final class APIClient {
     let baseURL: URL
@@ -71,6 +78,27 @@ final class APIClient {
         try JSONSerialization.data(withJSONObject: dict)
     }
 
+    /// Normalizes a list response into a JSON array:
+    /// handles a plain array (legacy) and `{data: [...], total: n}` (v2.20+ pagination).
+    private func dataArray(from dataObj: Any) -> Any {
+        if let dict = dataObj as? [String: Any] {
+            if let arr = dict["data"] { return arr }
+            if let arr = dict["rows"] { return arr }
+            return []
+        }
+        return dataObj
+    }
+
+    /// v2.20+ expects a plain numeric array for run/stop/enable/disable/pin/delete;
+    /// legacy panels expect `{"ids": [strings]}`.
+    private func idPayload(_ ids: [String]) throws -> Data {
+        let nums = ids.compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        if !ids.isEmpty && nums.count == ids.count {
+            return try JSONSerialization.data(withJSONObject: nums)
+        }
+        return try jsonBody(["ids": ids])
+    }
+
     // MARK: - Auth
 
     func authenticate(authType: AuthType, username: String, password: String, clientID: String, clientSecret: String) async throws -> String {
@@ -104,7 +132,7 @@ final class APIClient {
     func getCrons() async throws -> [CronTask] {
         let data = try await request(path: "/crons", method: "GET")
         guard let dataObj = try unwrap(data) else { return [] }
-        let reencoded = try JSONSerialization.data(withJSONObject: dataObj)
+        let reencoded = try JSONSerialization.data(withJSONObject: dataArray(from: dataObj))
         return try JSONDecoder().decode([CronTask].self, from: reencoded)
     }
 
@@ -116,50 +144,56 @@ final class APIClient {
     }
 
     func runCron(ids: [String]) async throws {
-        let body = try jsonBody(["ids": ids])
+        let body = try idPayload(ids)
         let data = try await request(path: "/crons/run", method: "PUT", body: body)
         try ensureOK(data)
     }
 
     func stopCron(ids: [String]) async throws {
-        let body = try jsonBody(["ids": ids])
+        let body = try idPayload(ids)
         let data = try await request(path: "/crons/stop", method: "PUT", body: body)
         try ensureOK(data)
     }
 
     func enableCron(ids: [String]) async throws {
-        let body = try jsonBody(["ids": ids])
+        let body = try idPayload(ids)
         let data = try await request(path: "/crons/enable", method: "PUT", body: body)
         try ensureOK(data)
     }
 
     func disableCron(ids: [String]) async throws {
-        let body = try jsonBody(["ids": ids])
+        let body = try idPayload(ids)
         let data = try await request(path: "/crons/disable", method: "PUT", body: body)
         try ensureOK(data)
     }
 
     func pinCron(ids: [String]) async throws {
-        let body = try jsonBody(["ids": ids])
+        let body = try idPayload(ids)
         let data = try await request(path: "/crons/pin", method: "PUT", body: body)
         try ensureOK(data)
     }
 
     func saveCron(_ cron: CronTask, isNew: Bool) async throws {
-        let payload: [String: Any] = [
-            "id": cron._id ?? "",
+        var payload: [String: Any] = [
             "name": cron.name,
             "command": cron.command,
             "schedule": cron.schedule,
             "labels": cron.labels
         ]
+        if !isNew {
+            if let n = cron.numericID {
+                payload["id"] = n
+            } else {
+                payload["id"] = cron.id
+            }
+        }
         let body = try jsonBody(payload)
         let data = try await request(path: "/crons", method: isNew ? "POST" : "PUT", body: body)
         try ensureOK(data)
     }
 
     func deleteCron(ids: [String]) async throws {
-        let body = try jsonBody(["ids": ids])
+        let body = try idPayload(ids)
         let data = try await request(path: "/crons", method: "DELETE", body: body)
         try ensureOK(data)
     }
@@ -169,7 +203,7 @@ final class APIClient {
     func getEnvs() async throws -> [EnvVar] {
         let data = try await request(path: "/envs", method: "GET")
         guard let dataObj = try unwrap(data) else { return [] }
-        let reencoded = try JSONSerialization.data(withJSONObject: dataObj)
+        let reencoded = try JSONSerialization.data(withJSONObject: dataArray(from: dataObj))
         return try JSONDecoder().decode([EnvVar].self, from: reencoded)
     }
 
@@ -179,26 +213,32 @@ final class APIClient {
             "value": env.value,
             "remarks": env.remarks ?? ""
         ]
-        if !isNew { payload["id"] = env._id ?? env.idField ?? "" }
+        if !isNew {
+            if let n = env.numericID {
+                payload["id"] = n
+            } else {
+                payload["id"] = env.id
+            }
+        }
         let body = try jsonBody(payload)
         let data = try await request(path: "/envs", method: isNew ? "POST" : "PUT", body: body)
         try ensureOK(data)
     }
 
     func enableEnv(ids: [String]) async throws {
-        let body = try jsonBody(["ids": ids])
+        let body = try idPayload(ids)
         let data = try await request(path: "/envs/enable", method: "PUT", body: body)
         try ensureOK(data)
     }
 
     func disableEnv(ids: [String]) async throws {
-        let body = try jsonBody(["ids": ids])
+        let body = try idPayload(ids)
         let data = try await request(path: "/envs/disable", method: "PUT", body: body)
         try ensureOK(data)
     }
 
     func deleteEnv(ids: [String]) async throws {
-        let body = try jsonBody(["ids": ids])
+        let body = try idPayload(ids)
         let data = try await request(path: "/envs", method: "DELETE", body: body)
         try ensureOK(data)
     }

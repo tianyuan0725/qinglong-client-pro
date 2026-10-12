@@ -56,7 +56,7 @@ struct CronDetailView: View {
             }
             row("名称", live?.name ?? cron.name)
             row("周期", live?.schedule ?? cron.schedule)
-            if let last = live?.lastExecutionTime ?? cron.lastExecutionTime {
+            if let last = live?.lastExecutionText ?? cron.lastExecutionText {
                 row("上次执行", last)
             }
             if !cron.labels.isEmpty {

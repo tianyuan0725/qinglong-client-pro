@@ -18,6 +18,8 @@ jobs:
   build:
     name: Build IPA (unsigned, TrollStore-ready)
     runs-on: macos-15
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,6 +61,29 @@ jobs:
           name: QinglongClientPro-ipa
           path: build/QinglongClientPro.ipa
           if-no-files-found: error
+
+      - name: Read app version
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        id: ver
+        run: |
+          V=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' QinglongClientPro/Info.plist)
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "app version: $V"
+
+      - name: Publish Release (auto)
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: 青龙客户端 Pro v${{ steps.ver.outputs.version }}
+          body: |
+            iOS 原生 SwiftUI 客户端 · 免签名 IPA · TrollStore 直装
+
+            - 支持青龙 v2.20+ 数字 ID 与分页 API（兼容旧版）
+            - 多面板管理 / 定时任务 / 环境变量 / 日志查看
+          files: build/QinglongClientPro.ipa
 
       - name: Upload IPA to release (if tagged)
         if: startsWith(github.ref, 'refs/tags/')

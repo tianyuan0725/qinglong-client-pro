@@ -35,65 +35,192 @@ struct FlexInt: Codable, Hashable {
     }
 }
 
+/// Accepts Int / Double / numeric String / arbitrary String and normalizes to String,
+/// keeping the numeric form for request payloads.
+/// Qinglong >= 2.20 uses numeric ids; older panels used Mongo string ids.
+struct FlexID: Codable, Hashable {
+    let value: String
+    let intValue: Int?
+
+    init(_ value: String) {
+        self.value = value
+        self.intValue = Int(value)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let i = try? c.decode(Int.self) {
+            value = String(i); intValue = i
+        } else if let d = try? c.decode(Double.self) {
+            value = String(Int(d)); intValue = Int(d)
+        } else if let s = try? c.decode(String.self) {
+            value = s; intValue = Int(s)
+        } else if let b = try? c.decode(Bool.self) {
+            value = b ? "1" : "0"; intValue = b ? 1 : 0
+        } else {
+            value = ""; intValue = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        if let i = intValue { try c.encode(i) } else { try c.encode(value) }
+    }
+}
+
 // MARK: - Cron task
 
 struct CronTask: Identifiable, Hashable {
-    var id: String { _id ?? "" }
-    let _id: String?
-    var name: String
-    var command: String
-    var schedule: String
-    var labels: [String]
-    var enabled: FlexBool?
-    var status: FlexInt?
-    var pid: FlexInt?
-    var isSystem: FlexInt?
-    var lastRunningTime: String?
-    var lastExecutionTime: String?
-    var runningStatus: FlexInt?
-    var logPath: String?
-    var createdAt: String?
+    var id: String { _id?.value ?? idField?.value ?? "" }
+    var _id: FlexID? = nil       // legacy Mongo string id
+    var idField: FlexID? = nil   // "id" key (numeric on v2.20+)
+    var name: String = ""
+    var command: String = ""
+    var schedule: String = ""
+    var labels: [String] = []
+    var isDisabled: FlexInt? = nil   // v2.20+: 1 = disabled
+    var enabled: FlexBool? = nil     // legacy panels
+    var status: FlexInt? = nil       // v2.20+: running=0 idle=1 disabled=2 queued=3
+    var pid: FlexInt? = nil
+    var isSystem: FlexInt? = nil
+    var isPinned: FlexInt? = nil
+    var lastRunningTime: FlexInt? = nil
+    var lastExecutionTime: FlexInt? = nil
+    var logPath: String? = nil
+    var createdAt: String? = nil
 
-    var isEnabled: Bool { enabled?.value ?? true }
-    var isRunning: Bool { (runningStatus?.value ?? 0) > 0 || (pid?.value ?? 0) > 0 }
+    var numericID: Int? { _id?.intValue ?? idField?.intValue }
+
+    var isEnabled: Bool {
+        if let d = isDisabled { return d.value == 0 }
+        return enabled?.value ?? true
+    }
+
+    var isRunning: Bool {
+        (status?.value ?? 1) == 0 || (pid?.value ?? 0) > 0
+    }
+
     var statusLabel: String {
         if isRunning { return "运行中" }
-        if let s = status?.value, s > 0 { return "已结束" }
-        return isEnabled ? "已启用" : "已禁用"
+        switch status?.value ?? 1 {
+        case 3: return "排队中"
+        default: return isEnabled ? "空闲" : "已禁用"
+        }
+    }
+
+    var lastExecutionText: String? {
+        guard let t = lastExecutionTime?.value, t > 0 else { return nil }
+        return Self.formatTime(t)
+    }
+
+    static func formatTime(_ t: Int) -> String {
+        let ts = t > 1_000_000_000_000 ? t / 1000 : t
+        guard ts > 946_684_800 else { return "-" }
+        let d = Date(timeIntervalSince1970: TimeInterval(ts))
+        let f = DateFormatter()
+        f.dateFormat = "MM-dd HH:mm"
+        return f.string(from: d)
     }
 }
 
 extension CronTask: Codable {
     enum CodingKeys: String, CodingKey {
         case _id, name, command, schedule, labels, status, pid, isSystem
-        case enabled
+        case isDisabled, isPinned, enabled
+        case idField = "id"
         case lastRunningTime = "last_running_time"
         case lastExecutionTime = "last_execution_time"
-        case runningStatus = "running_status"
         case logPath = "log_path"
-        case createdAt = "created_at"
+        case createdAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        _id = try? c.decodeIfPresent(FlexID.self, forKey: ._id)
+        idField = try? c.decodeIfPresent(FlexID.self, forKey: .idField)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil ?? ""
+        command = (try? c.decodeIfPresent(String.self, forKey: .command)) ?? nil ?? ""
+        schedule = (try? c.decodeIfPresent(String.self, forKey: .schedule)) ?? nil ?? ""
+        labels = (try? c.decodeIfPresent([String].self, forKey: .labels)) ?? nil ?? []
+        isDisabled = try? c.decodeIfPresent(FlexInt.self, forKey: .isDisabled)
+        enabled = try? c.decodeIfPresent(FlexBool.self, forKey: .enabled)
+        status = try? c.decodeIfPresent(FlexInt.self, forKey: .status)
+        pid = try? c.decodeIfPresent(FlexInt.self, forKey: .pid)
+        isSystem = try? c.decodeIfPresent(FlexInt.self, forKey: .isSystem)
+        isPinned = try? c.decodeIfPresent(FlexInt.self, forKey: .isPinned)
+        lastRunningTime = try? c.decodeIfPresent(FlexInt.self, forKey: .lastRunningTime)
+        lastExecutionTime = try? c.decodeIfPresent(FlexInt.self, forKey: .lastExecutionTime)
+        logPath = try? c.decodeIfPresent(String.self, forKey: .logPath)
+        createdAt = try? c.decodeIfPresent(String.self, forKey: .createdAt)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(_id, forKey: ._id)
+        try c.encodeIfPresent(idField, forKey: .idField)
+        try c.encode(name, forKey: .name)
+        try c.encode(command, forKey: .command)
+        try c.encode(schedule, forKey: .schedule)
+        try c.encode(labels, forKey: .labels)
+        try c.encodeIfPresent(isDisabled, forKey: .isDisabled)
+        try c.encodeIfPresent(enabled, forKey: .enabled)
+        try c.encodeIfPresent(status, forKey: .status)
+        try c.encodeIfPresent(pid, forKey: .pid)
+        try c.encodeIfPresent(isSystem, forKey: .isSystem)
+        try c.encodeIfPresent(isPinned, forKey: .isPinned)
+        try c.encodeIfPresent(lastRunningTime, forKey: .lastRunningTime)
+        try c.encodeIfPresent(lastExecutionTime, forKey: .lastExecutionTime)
+        try c.encodeIfPresent(logPath, forKey: .logPath)
+        try c.encodeIfPresent(createdAt, forKey: .createdAt)
     }
 }
 
 // MARK: - Environment variable
 
 struct EnvVar: Identifiable, Hashable {
-    var id: String { _id ?? idField ?? UUID().uuidString }
-    let _id: String?
-    let idField: String?
-    var name: String
-    var value: String
-    var remarks: String?
-    var status: FlexInt?   // 0 = enabled, 1 = disabled
-    var position: FlexInt?
+    var id: String { _id?.value ?? idField?.value ?? UUID().uuidString }
+    var _id: FlexID? = nil       // legacy Mongo string id
+    var idField: FlexID? = nil   // "id" key (numeric on v2.20+)
+    var name: String = ""
+    var value: String = ""
+    var remarks: String? = nil
+    var status: FlexInt? = nil   // 0 = normal, 1 = disabled
+    var position: FlexInt? = nil
+    var labels: [String]? = nil
 
-    var isEnabled: Bool { status?.value ?? 0 == 0 }
+    var numericID: Int? { _id?.intValue ?? idField?.intValue }
+
+    var isEnabled: Bool { (status?.value ?? 0) == 0 }
 }
 
 extension EnvVar: Codable {
     enum CodingKeys: String, CodingKey {
-        case _id, name, value, remarks, status, position
+        case _id, name, value, remarks, status, position, labels
         case idField = "id"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        _id = try? c.decodeIfPresent(FlexID.self, forKey: ._id)
+        idField = try? c.decodeIfPresent(FlexID.self, forKey: .idField)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil ?? ""
+        value = (try? c.decodeIfPresent(String.self, forKey: .value)) ?? nil ?? ""
+        remarks = try? c.decodeIfPresent(String.self, forKey: .remarks)
+        status = try? c.decodeIfPresent(FlexInt.self, forKey: .status)
+        position = try? c.decodeIfPresent(FlexInt.self, forKey: .position)
+        labels = try? c.decodeIfPresent([String].self, forKey: .labels)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(_id, forKey: ._id)
+        try c.encodeIfPresent(idField, forKey: .idField)
+        try c.encode(name, forKey: .name)
+        try c.encode(value, forKey: .value)
+        try c.encodeIfPresent(remarks, forKey: .remarks)
+        try c.encodeIfPresent(status, forKey: .status)
+        try c.encodeIfPresent(position, forKey: .position)
+        try c.encodeIfPresent(labels, forKey: .labels)
     }
 }
 

@@ -76,17 +76,19 @@ struct CronEditorView: View {
 
         let cron = CronTask(
             _id: editing?._id,
+            idField: editing?.idField,
             name: name,
             command: command,
             schedule: schedule,
             labels: labels,
+            isDisabled: editing?.isDisabled,
             enabled: editing?.enabled,
             status: editing?.status,
             pid: editing?.pid,
             isSystem: editing?.isSystem,
+            isPinned: editing?.isPinned,
             lastRunningTime: editing?.lastRunningTime,
             lastExecutionTime: editing?.lastExecutionTime,
-            runningStatus: editing?.runningStatus,
             logPath: editing?.logPath,
             createdAt: editing?.createdAt
         )
