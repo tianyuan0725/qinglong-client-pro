@@ -42,6 +42,33 @@ struct AboutView: View {
                 infoRow("登录账号", session.currentUser?.username ?? "—")
             }
 
+            Section("客户端更新日志") {
+                ForEach(AppChangelog.entries) { entry in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("v\(entry.version)")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(qlBrandGreen)
+                            Spacer()
+                            Text(entry.date)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        ForEach(Array(entry.notes.enumerated()), id: \.offset) { _, note in
+                            HStack(alignment: .top, spacing: 6) {
+                                Text("·")
+                                    .foregroundStyle(.tertiary)
+                                Text(note)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+
             Section("面板更新日志") {
                 Text(session.panelInfo?.changeLog?.isEmpty == false ? session.panelInfo!.changeLog! : "暂无更新日志")
                     .font(.caption)

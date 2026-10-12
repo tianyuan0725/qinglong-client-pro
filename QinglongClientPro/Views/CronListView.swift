@@ -122,6 +122,11 @@ struct CronListView: View {
                 if session.systemInfo == nil { await session.loadSystem() }
                 if session.panelInfo == nil { await session.loadPanelInfo() }
                 if session.subscriptions.isEmpty { await session.loadSubscriptions() }
+                // 自动监听运行中任务：面板定时自动跑的任务，完成时也发本地通知
+                // （不只是手动点「运行」的；watchCron 内部去重）
+                for cron in session.crons where cron.isRunning {
+                    AppNotifyManager.shared.watchCron(session: session, cronId: cron.id, name: cron.name)
+                }
             }
         }
     }

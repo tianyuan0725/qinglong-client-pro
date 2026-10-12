@@ -78,11 +78,8 @@ jobs:
         with:
           tag_name: v${{ steps.ver.outputs.version }}
           name: 青龙客户端 Pro v${{ steps.ver.outputs.version }}
-          body: |
-            iOS 原生 SwiftUI 客户端 · 免签名 IPA · TrollStore 直装
-
-            - 支持青龙 v2.20+ 数字 ID 与分页 API（兼容旧版）
-            - 多面板管理 / 定时任务 / 环境变量 / 日志查看
+          # 更新说明取自仓库根目录 RELEASE_NOTES.md（每次发版同步维护）
+          body_path: RELEASE_NOTES.md
           files: build/QinglongClientPro.ipa
 
       - name: Upload IPA to release (if tagged)

@@ -7,6 +7,7 @@ struct SystemSettingsView: View {
     @EnvironmentObject var store: ConnectionStore
     @EnvironmentObject var appLock: AppLockManager
     @EnvironmentObject var notify: AppNotifyManager
+    @State private var refreshing = false
     @State private var showNotify = false
 
     private let schemes = ["system": "跟随系统", "light": "浅色", "dark": "深色"]
@@ -43,10 +44,25 @@ struct SystemSettingsView: View {
                         LabeledContent("面板版本", value: "v\(v)")
                     }
                     Button {
-                        Task { await session.loadAll() }
+                        refreshing = true
+                        Task {
+                            await session.loadAll()
+                            refreshing = false
+                        }
                     } label: {
-                        Label("刷新全部数据", systemImage: "arrow.clockwise")
+                        HStack {
+                            Text("刷新全部数据")
+                            Spacer()
+                            if refreshing {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                                    .foregroundStyle(qlBrandGreen)
+                            }
+                        }
                     }
+                    .disabled(refreshing)
                 }
 
                 Section("系统设置") {

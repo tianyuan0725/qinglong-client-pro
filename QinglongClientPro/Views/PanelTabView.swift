@@ -17,6 +17,8 @@ struct PanelTabView: View {
                 restoringView
             } else if session.isAuthenticated {
                 TabView {
+                    DashboardView()
+                        .tabItem { Label("仪表盘", systemImage: "gauge.medium") }
                     CronListView()
                         .tabItem { Label("定时任务", systemImage: "list.bullet.rectangle") }
                     EnvListView()

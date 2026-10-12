@@ -10,6 +10,9 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
     static let shared = AppNotifyManager()
 
     /// 总开关：任务运行时发送本地通知。
+    /// 注意：@AppStorage 的默认值不会触发 didSet，所以 init 里要主动补一次授权请求，
+    /// 否则老用户升级后开关显示「开」但从未弹过系统授权对话框 → 通知被系统静默丢弃
+    /// （v2.0.5 用户反馈「运行完收不到通知」的根因）。
     @AppStorage("qlpro_localNotify") var enabled: Bool = true {
         didSet { if enabled { requestAuthorization() } }
     }
@@ -17,12 +20,20 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
     /// 是否已获得系统通知权限。
     @Published var authorized = false
 
+    /// 正在监听完成状态的任务 id（避免重复轮询）。
+    private var watchingIds = Set<String>()
+
     private override init() {
         super.init()
         // 注册 delegate：让 App 在前台时通知也以横幅形式弹出
         // （系统默认前台不展示通知）。
         UNUserNotificationCenter.current().delegate = self
         refreshStatus()
+        // 默认开启但从未请求过授权 → 启动即补请求（系统对话框只弹一次，
+        // 用户错过/拒绝后设置页有「前往系统设置」引导）。
+        if enabled {
+            requestAuthorization()
+        }
     }
 
     func refreshStatus() {
@@ -57,8 +68,12 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
 
     // MARK: - 发送
 
-    /// 发送一条本地通知（立即展示）。
+    /// 发送一条本地通知（立即展示）。未授权时先补一次授权请求。
     func notify(title: String, body: String, identifier: String = UUID().uuidString) {
+        if !authorized {
+            // 兜底：从未授权过（用户可能拒绝过系统对话框），先请求再发。
+            requestAuthorization()
+        }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -83,15 +98,19 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
 
     /// 任务启动后轮询运行状态，结束时发「已完成」通知。
     /// 轮询同时会刷新任务列表（副作用：列表状态保持最新）。
+    /// 去重：同一任务同时只允许一个监听（列表页自动监听 + 手动运行都会调用）。
     /// - Parameters:
     ///   - session: 当前面板会话
     ///   - cronId: 任务 id
     ///   - name: 任务名称（通知文案用）
     func watchCron(session: PanelSession, cronId: String, name: String) {
+        guard !watchingIds.contains(cronId) else { return }
+        watchingIds.insert(cronId)
         Task { @MainActor in
-            // 最多轮询 10 分钟（120 × 5s），超时不再打扰。
+            // 最多轮询 10 分钟（120 × 3s…按 5s 算 120 次），超时不再打扰。
+            defer { watchingIds.remove(cronId) }
             for _ in 0..<120 {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
                 await session.loadCrons()
                 if let cron = session.crons.first(where: { $0.id == cronId }), !cron.isRunning {
                     notifyCronFinished(name: name)
