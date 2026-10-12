@@ -583,3 +583,251 @@ struct PanelInfo: Codable {
         return f.string(from: d)
     }
 }
+
+// MARK: - 当前登录用户 (GET /api/user)
+
+struct UserInfo: Decodable, Hashable {
+    var username: String = ""
+    var avatar: String = ""
+    var twoFactorActivated: Bool = false
+
+    enum CodingKeys: String, CodingKey { case username, avatar, twoFactorActivated }
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        username = (try? c.decodeIfPresent(String.self, forKey: .username)) ?? ""
+        avatar = (try? c.decodeIfPresent(String.self, forKey: .avatar)) ?? ""
+        twoFactorActivated = (try? c.decodeIfPresent(Bool.self, forKey: .twoFactorActivated)) ?? false
+    }
+}
+
+// MARK: - 登录日志 (GET /api/user/login-log)
+
+/// 青龙登录日志。status: 0=success / 1=fail。
+struct LoginLogEntry: Identifiable, Decodable, Hashable {
+    var id: String { "\(timestamp ?? 0)-\(ip ?? "")" }
+    var timestamp: Int?
+    var address: String?
+    var ip: String?
+    var platform: String?
+    var status: Int?
+
+    enum CodingKeys: String, CodingKey { case timestamp, address, ip, platform, status }
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        timestamp = try? c.decodeIfPresent(Int.self, forKey: .timestamp)
+        address = try? c.decodeIfPresent(String.self, forKey: .address)
+        ip = try? c.decodeIfPresent(String.self, forKey: .ip)
+        platform = try? c.decodeIfPresent(String.self, forKey: .platform)
+        status = try? c.decodeIfPresent(Int.self, forKey: .status)
+    }
+
+    var isSuccess: Bool { (status ?? 0) == 0 }
+    var timeText: String {
+        guard let t = timestamp, t > 0 else { return "—" }
+        let d = Date(timeIntervalSince1970: TimeInterval(t) / 1000.0)
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f.string(from: d)
+    }
+}
+
+// MARK: - 通知配置 (GET/PUT /api/user/notification)
+
+/// 通知渠道枚举，与青龙 NotificationMode 一致。
+enum NotifyChannel: String, CaseIterable, Identifiable {    case gotify = "gotify"
+    case goCqHttpBot = "goCqHttpBot"
+    case serverChan = "serverChan"
+    case pushDeer = "pushDeer"
+    case bark = "bark"
+    case chat = "chat"
+    case telegramBot = "telegramBot"
+    case dingtalkBot = "dingtalkBot"
+    case weWorkBot = "weWorkBot"
+    case weWorkApp = "weWorkApp"
+    case aibotk = "aibotk"
+    case iGot = "iGot"
+    case pushPlus = "pushPlus"
+    case wePlusBot = "wePlusBot"
+    case email = "email"
+    case pushMe = "pushMe"
+    case feishu = "feishu"
+    case webhook = "webhook"
+    case chronocat = "Chronocat"
+    case ntfy = "ntfy"
+    case wxPusherBot = "wxPusherBot"
+    case openiLink = "openiLink"
+    case wpush = "wpush"
+
+    var id: String { rawValue }
+
+    /// 渠道参数项（key 为面板字段名，hint 为填写提示）。
+    struct Field: Identifiable, Hashable {
+        let key: String
+        let hint: String
+        var id: String { key }
+    }
+
+    var label: String {
+        switch self {
+        case .gotify: return "Gotify"
+        case .goCqHttpBot: return "GoCqHttpGet Bot"
+        case .serverChan: return "Server 酱"
+        case .pushDeer: return "PushDeer"
+        case .bark: return "Bark"
+        case .chat: return "Synology Chat"
+        case .telegramBot: return "Telegram 机器人"
+        case .dingtalkBot: return "钉钉机器人"
+        case .weWorkBot: return "企业微信机器人"
+        case .weWorkApp: return "企业微信应用"
+        case .aibotk: return "智能微秘书"
+        case .iGot: return "iGot"
+        case .pushPlus: return "PushPlus"
+        case .wePlusBot: return "WePlus 机器人"
+        case .email: return "电子邮件"
+        case .pushMe: return "PushMe"
+        case .feishu: return "飞书机器人"
+        case .webhook: return "自定义 Webhook"
+        case .chronocat: return "Chronocat"
+        case .ntfy: return "ntfy"
+        case .wxPusherBot: return "WxPusher 机器人"
+        case .openiLink: return "OpeniLink"
+        case .wpush: return "Wpush"
+        }
+    }
+
+    /// 每个渠道需要填写的字段 (key -> 占位提示)。
+    var fields: [Field] {
+        switch self {
+        case .gotify:
+            return [Field(key: "gotifyUrl", hint: "Gotify 地址，如 https://gotify.example.com"),
+                    Field(key: "gotifyToken", hint: "应用 Token"), Field(key: "gotifyPriority", hint: "优先级，默认 0")]
+        case .goCqHttpBot:
+            return [Field(key: "goCqHttpBotUrl", hint: "GoCqHttp 地址"),
+                    Field(key: "goCqHttpBotToken", hint: "access_token"), Field(key: "goCqHttpBotQq", hint: "接收消息的 QQ 号")]
+        case .serverChan:
+            return [Field(key: "serverChanKey", hint: "SendKey")]
+        case .pushDeer:
+            return [Field(key: "pushDeerKey", hint: "PushKey"), Field(key: "pushDeerUrl", hint: "自建地址，可空")]
+        case .bark:
+            return [Field(key: "barkPush", hint: "设备 key 或完整 URL"), Field(key: "barkSound", hint: "铃声，可空"),
+                    Field(key: "barkGroup", hint: "分组，默认 qinglong"), Field(key: "barkUrl", hint: "跳转 URL，可空")]
+        case .chat:
+            return [Field(key: "synologyChatUrl", hint: "Synology Chat 机器人 Webhook 地址")]
+        case .telegramBot:
+            return [Field(key: "telegramBotToken", hint: "Bot Token"), Field(key: "telegramBotUserId", hint: "用户/群 ID"),
+                    Field(key: "telegramBotApiHost", hint: "API 地址，默认 https://api.telegram.org")]
+        case .dingtalkBot:
+            return [Field(key: "dingtalkBotToken", hint: "机器人 access_token"), Field(key: "dingtalkBotSecret", hint: "加签密钥，可空")]
+        case .weWorkBot:
+            return [Field(key: "weWorkBotKey", hint: "机器人 Webhook key")]
+        case .weWorkApp:
+            return [Field(key: "weWorkAppKey", hint: "应用 key")]
+        case .aibotk:
+            return [Field(key: "aibotkKey", hint: "智能微秘书 key"), Field(key: "aibotkName", hint: "接收人，可空")]
+        case .iGot:
+            return [Field(key: "iGotPushKey", hint: "iGot pushKey")]
+        case .pushPlus:
+            return [Field(key: "pushPlusToken", hint: "Token"), Field(key: "pushPlusUser", hint: "群组编码，可空")]
+        case .wePlusBot:
+            return [Field(key: "wePlusBotToken", hint: "Token"), Field(key: "wePlusBotReceiver", hint: "接收人 UID")]
+        case .email:
+            return [Field(key: "emailService", hint: "SMTP 服务，如 smtp.qq.com"),
+                    Field(key: "emailUser", hint: "登录账号"), Field(key: "emailPass", hint: "密码/授权码"), Field(key: "emailTo", hint: "收件人，可空")]
+        case .pushMe:
+            return [Field(key: "pushMeKey", hint: "PushKey"), Field(key: "pushMeUrl", hint: "自建地址，可空")]
+        case .feishu:
+            return [Field(key: "larkKey", hint: "飞书机器人 Webhook 中的 key"), Field(key: "larkSecret", hint: "加签密钥，可空")]
+        case .webhook:
+            return [Field(key: "webhookUrl", hint: "完整 Webhook 地址"), Field(key: "webhookMethod", hint: "GET/POST/PUT"),
+                    Field(key: "webhookContentType", hint: "application/json 等"), Field(key: "webhookHeaders", hint: "请求头 JSON，可空"),
+                    Field(key: "webhookBody", hint: "请求体模板，可空")]
+        case .chronocat:
+            return [Field(key: "chronocatURL", hint: "Chronocat 地址"), Field(key: "chronocatQQ", hint: "接收 QQ 号"), Field(key: "chronocatToken", hint: "Token")]
+        case .ntfy:
+            return [Field(key: "ntfyUrl", hint: "ntfy 地址，如 https://ntfy.sh"), Field(key: "ntfyTopic", hint: "Topic"),
+                    Field(key: "ntfyToken", hint: "Token，可空"), Field(key: "ntfyPriority", hint: "优先级，可空")]
+        case .wxPusherBot:
+            return [Field(key: "wxPusherBotAppToken", hint: "应用 Token"), Field(key: "wxPusherBotTopicIds", hint: "主题 ID，可空"),
+                    Field(key: "wxPusherBotUids", hint: "用户 UID，可空")]
+        case .openiLink:
+            return [Field(key: "openiLinkAppToken", hint: "应用 Token"), Field(key: "openiLinkHubUrl", hint: "Hub 地址，可空")]
+        case .wpush:
+            return [Field(key: "wpushApiKey", hint: "API Key"), Field(key: "wpushChannel", hint: "渠道，可空"), Field(key: "wpushTopicCode", hint: "主题代码，可空")]
+        }
+    }
+}
+
+/// 通知配置：所有字段容错解码（不同面板版本字段有增减）。
+struct NotificationConfig: Decodable {
+    var type: String = ""
+    var raw: [String: String] = [:]
+
+    private static let stringKeys: Set<String> = [
+        "gotifyUrl","gotifyToken","goCqHttpBotUrl","goCqHttpBotToken","goCqHttpBotQq",
+        "serverChanKey","pushDeerKey","pushDeerUrl","synologyChatUrl","barkPush","barkSound",
+        "barkGroup","barkUrl","telegramBotToken","telegramBotUserId","telegramBotApiHost",
+        "dingtalkBotToken","dingtalkBotSecret","weWorkBotKey","weWorkAppKey","aibotkKey",
+        "aibotkName","iGotPushKey","pushPlusToken","pushPlusUser","pushplusTo","wePlusBotToken",
+        "wePlusBotReceiver","emailService","emailUser","emailPass","emailTo","pushMeKey",
+        "pushMeUrl","larkKey","larkSecret","webhookUrl","webhookMethod","webhookContentType",
+        "webhookHeaders","webhookBody","chronocatURL","chronocatQQ","chronocatToken","ntfyUrl",
+        "ntfyTopic","ntfyToken","ntfyPriority","ntfyUsername","ntfyPassword","wxPusherBotAppToken",
+        "wxPusherBotTopicIds","wxPusherBotUids","wxPusherSptList","openiLinkAppToken",
+        "openiLinkHubUrl","openiLinkContextToken","wpushApiKey","wpushChannel","wpushTopicCode",
+    ]
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: DynamicKey.self)
+        var out: [String: String] = [:]
+        if let t = try? c.decodeIfPresent(String.self, forKey: DynamicKey("type")) { type = t }
+        for key in Self.stringKeys {
+            if let v = try? c.decodeIfPresent(String.self, forKey: DynamicKey(key)) { out[key] = v }
+        }
+        // 数字型字段也按字符串收，便于统一回显
+        if let p = try? c.decodeIfPresent(Int.self, forKey: DynamicKey("gotifyPriority")) { out["gotifyPriority"] = String(p) }
+        raw = out
+    }
+
+    private struct DynamicKey: CodingKey {
+        var stringValue: String
+        var intValue: Int? { nil }
+        init(_ s: String) { stringValue = s }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { return nil }
+    }
+
+    func value(_ key: String) -> String { raw[key] ?? "" }
+    var channel: NotifyChannel? { NotifyChannel(rawValue: type) }
+
+    /// 组装 PUT /api/user/notification 请求体（附带 type）。
+    func payload(channel: NotifyChannel) -> [String: String] {
+        var dict = raw
+        dict["type"] = channel.rawValue
+        return dict
+    }
+}
+
+// MARK: - 依赖扫描结果 (扫描依赖)
+
+/// 从脚本中识别出的依赖引用。
+struct DepScanItem: Identifiable, Hashable {
+    var id: String { "\(name)|\(type)" }
+    var name: String
+    var type: Int            // 0 Node.js / 1 Python3 / 2 Linux
+    /// 引用该依赖的脚本相对路径。
+    var sources: [String]
+    /// 面板中已安装的同名依赖数量（>0 视为已安装）。
+    var installed: Bool
+
+    var typeLabel: String {
+        switch type {
+        case 0: return "Node.js"
+        case 1: return "Python3"
+        default: return "Linux"
+        }
+    }
+}

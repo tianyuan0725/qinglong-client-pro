@@ -8,7 +8,6 @@ struct SubscriptionListView: View {
     @State private var confirmDelete: [Subscription]? = nil
 
     var body: some View {
-        NavigationStack {
             List {
                 ForEach(session.subscriptions) { sub in
                     NavigationLink {
@@ -70,7 +69,6 @@ struct SubscriptionListView: View {
                     confirmDelete = nil
                 }
             } message: { Text(confirmDelete.map { "确定删除订阅 \($0.first?.displayName ?? "")？" } ?? "") }
-        }
     }
 }
 

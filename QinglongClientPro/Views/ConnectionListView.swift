@@ -3,8 +3,12 @@ import SwiftUI
 struct ConnectionListView: View {
     @EnvironmentObject var store: ConnectionStore
     @EnvironmentObject var appState: AppState
+    /// 以「账号排序」模式打开时自动进入编辑态（拖动排序）。
+    var startInSortMode: Bool = false
     @State private var showEditor = false
     @State private var editing: Connection?
+    @State private var editMode: EditMode = .inactive
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
@@ -20,7 +24,7 @@ struct ConnectionListView: View {
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: "server.rack")
-                                    .foregroundStyle(Color.accentColor)
+                                    .foregroundStyle(qlBrandGreen)
                                     .frame(width: 28)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(conn.name).font(.headline)
@@ -49,7 +53,8 @@ struct ConnectionListView: View {
                             } label: { Label("删除", systemImage: "trash") }
                         }
                     }
-                } header: { Text("已配置的面板") }
+                    .onMove(perform: store.move)
+                } header: { Text("已配置的面板（拖动可排序）") }
 
                 Section {
                     Toggle("启动时自动连接默认面板", isOn: Binding(
@@ -71,7 +76,18 @@ struct ConnectionListView: View {
                 }
             }
             .navigationTitle("青龙客户端 Pro")
+            .environment(\.editMode, $editMode)
+            .onAppear {
+                if startInSortMode { editMode = .active }
+            }
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if startInSortMode {
+                        Button("完成") { dismiss() }
+                    } else {
+                        EditButton()
+                    }
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         editing = nil

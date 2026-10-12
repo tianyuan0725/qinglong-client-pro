@@ -9,7 +9,6 @@ struct DependencyListView: View {
     @State private var statusSegment = ""      // "" 全部 / 状态数字
 
     var body: some View {
-        NavigationStack {
             VStack(spacing: 0) {
                 filterBar
                 List {
@@ -64,7 +63,6 @@ struct DependencyListView: View {
                     confirmDelete = nil
                 }
             } message: { Text(confirmDelete.map { "确定删除依赖 \($0.first?.name ?? "")？" } ?? "") }
-        }
     }
 
     private func statusColor(_ dep: Dependency) -> Color {

@@ -418,4 +418,332 @@ final class PanelSession: ObservableObject {
         do { try await client.deleteEnv(ids: ids); await loadEnvs() }
         catch { lastError = error.localizedDescription }
     }
+
+    // MARK: - 当前用户 / 登录日志 / 通知配置 / 系统日志文件
+
+    @Published var currentUser: UserInfo?
+    @Published var loginLogs: [LoginLogEntry] = []
+    @Published var notificationConfig: NotificationConfig?
+    @Published var logFiles: [FileNode] = []
+
+    func loadCurrentUser() async {
+        do { currentUser = try await client.getCurrentUser() }
+        catch { /* 非关键，忽略 */ }
+    }
+
+    func loadLoginLogs() async {
+        do { loginLogs = try await client.getLoginLogs() }
+        catch { lastError = error.localizedDescription }
+    }
+
+    func loadNotificationConfig() async {
+        do { notificationConfig = try await client.getNotificationConfig() }
+        catch { lastError = error.localizedDescription }
+    }
+
+    func saveNotificationConfig(_ config: NotificationConfig, channel: NotifyChannel) async -> Bool {
+        isBusy = true; defer { isBusy = false }
+        do {
+            try await client.updateNotificationConfig(config.payload(channel: channel))
+            await loadNotificationConfig()
+            return true
+        } catch { lastError = error.localizedDescription; return false }
+    }
+
+    func changeCredentials(username: String, password: String) async -> Bool {
+        isBusy = true; defer { isBusy = false }
+        do { try await client.updateUsernameAndPassword(username: username, password: password); return true }
+        catch { lastError = error.localizedDescription; return false }
+    }
+
+    func loadLogFiles() async {
+        do { logFiles = try await client.getLogFiles() }
+        catch { lastError = error.localizedDescription }
+    }
+
+    func logFileContent(_ node: FileNode) async -> String {
+        (try? await client.getLogFileContent(path: node.parent, file: node.title)) ?? "（无法读取日志文件）"
+    }
+
+    func deleteLogFile(_ node: FileNode) async -> Bool {
+        isBusy = true; defer { isBusy = false }
+        do { try await client.deleteLogFile(path: node.parent, file: node.title); await loadLogFiles(); return true }
+        catch { lastError = error.localizedDescription; return false }
+    }
+
+    // MARK: - 依赖扫描（原 VIP 功能，现已免费）
+
+    @Published var isScanning = false
+    @Published var scanProgress: String = ""
+    @Published var scanResult: [DepScanItem] = []
+    @Published var scanError: String?
+    /// 一键补装缺失依赖。
+    func installMissingDependencies(_ items: [DepScanItem]) async -> Bool {
+        guard !items.isEmpty else { return false }
+        isBusy = true; defer { isBusy = false }
+        do {
+            let payload = items.map { ["name": $0.name, "type": $0.type, "remark": "扫描依赖自动补装"] as [String: Any] }
+            try await client.createDependencies(payload)
+            await loadDependencies()
+            return true
+        } catch { lastError = error.localizedDescription; return false }
+    }
+
+    /// 递归扫描面板脚本目录，提取 require/import 依赖并与已装依赖比对。
+    func scanScriptDependencies() async {
+        guard !isScanning else { return }
+        isScanning = true; scanError = nil; scanResult = []
+        defer { isScanning = false; scanProgress = "" }
+        do {
+            // 1) 递归收集全部脚本文件（显式栈，避免深递归）
+            var stack: [String] = [""]
+            var visited = Set<String>()
+            var files: [(path: String, name: String)] = []
+            while !stack.isEmpty {
+                let dir = stack.removeLast()
+                let nodes = try await self.client.getFileList(path: dir.isEmpty ? nil : dir)
+                for n in nodes {
+                    let key = n.key.isEmpty ? n.title : n.key
+                    if visited.contains(key) { continue }
+                    visited.insert(key)
+                    if n.isDirectory {
+                        scanProgress = "扫描目录 \(key)"
+                        stack.append(key)
+                    } else if Self.scriptExtensions.contains((n.title as NSString).pathExtension.lowercased()) {
+                        files.append((n.parent, n.title))
+                    }
+                }
+            }
+            // 2) 下载脚本内容并解析依赖引用
+            var found: [String: DepScanItem] = [:]
+            for (idx, f) in files.enumerated() {
+                scanProgress = "解析 \(f.name)（\(idx + 1)/\(files.count)）"
+                let content = (try? await self.client.getFileContent(path: f.path, file: f.name)) ?? ""
+                for (name, type) in Self.extractDeps(from: content, filename: f.name) {
+                    let k = "\(name.lowercased())|\(type)"
+                    if var item = found[k] {
+                        if !item.sources.contains(f.name) { item.sources.append(f.name) }
+                        found[k] = item
+                    } else {
+                        found[k] = DepScanItem(name: name, type: type, sources: [f.name], installed: false)
+                    }
+                }
+            }
+            // 3) 与面板已有依赖比对（同名即视为已处理）
+            let listed = Set(dependencies.map { $0.name.lowercased() })
+            scanResult = found.values.map { item in
+                var i = item
+                i.installed = listed.contains(item.name.lowercased())
+                return i
+            }
+            .sorted { lhs, rhs in
+                if lhs.installed != rhs.installed { return !lhs.installed }
+                if lhs.type != rhs.type { return lhs.type < rhs.type }
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+            if scanResult.isEmpty { scanError = "未在脚本中发现第三方依赖引用" }
+        } catch {
+            scanError = error.localizedDescription
+        }
+    }
+
+    private static let scriptExtensions: Set<String> = ["js", "mjs", "cjs", "ts", "py", "sh"]
+
+    /// Node.js 内置模块（无需安装依赖）。
+    private static let nodeBuiltins: Set<String> = [
+        "assert","async_hooks","buffer","child_process","cluster","console","constants","crypto",
+        "dgram","diagnostics_channel","dns","domain","events","fs","http","http2","https","inspector",
+        "module","net","os","path","perf_hooks","process","punycode","querystring","readline","repl",
+        "stream","string_decoder","sys","timers","tls","trace_events","tty","url","util","v8","vm",
+        "wasi","worker_threads","zlib",
+    ]
+
+    /// Python 标准库常见模块（不列为依赖）。
+    private static let pythonStdlib: Set<String> = [
+        "abc","argparse","array","ast","asyncio","atexit","base64","bdb","binascii","bisect","builtins",
+        "bz2","calendar","cgi","cgitb","chunk","cmath","cmd","code","codecs","codeop","collections",
+        "colorsys","compileall","concurrent","configparser","contextlib","contextvars","copy","copyreg",
+        "cProfile","crypt","csv","ctypes","curses","dataclasses","datetime","dbm","decimal","difflib",
+        "dis","distutils","doctest","email","encodings","enum","errno","faulthandler","fcntl","filecmp",
+        "fileinput","fnmatch","fractions","ftplib","functools","gc","getopt","getpass","gettext","glob",
+        "graphlib","grp","gzip","hashlib","heapq","hmac","html","http","imaplib","importlib","inspect",
+        "io","ipaddress","itertools","json","keyword","linecache","locale","logging","lzma","mailbox",
+        "mailcap","marshal","math","mimetypes","mmap","modulefinder","msilib","msvcrt","multiprocessing",
+        "netrc","nis","nntplib","numbers","operator","optparse","os","ossaudiodev","pathlib","pdb","pickle",
+        "pickletools","pipes","pkgutil","platform","plistlib","poplib","posix","posixpath","pprint",
+        "profile","pstats","pty","pwd","py_compile","pyclbr","pydoc","queue","quopri","random","re",
+        "readline","reprlib","resource","rlcompleter","runpy","sched","secrets","select","selectors",
+        "shelve","shlex","shutil","signal","site","smtpd","smtplib","sndhdr","socket","socketserver",
+        "spwd","sqlite3","ssl","stat","statistics","string","stringprep","struct","subprocess","sunau",
+        "symtable","sys","sysconfig","syslog","tabnanny","tarfile","telnetlib","tempfile","termios",
+        "textwrap","threading","time","timeit","tkinter","token","tokenize","tomllib","trace","traceback",
+        "tracemalloc","tty","turtle","turtledemo","types","typing","unicodedata","unittest","urllib",
+        "uu","uuid","venv","warnings","wave","weakref","webbrowser","winreg","winsound","wsgiref","xdrlib",
+        "xml","xmlrpc","zipapp","zipfile","zipimport","zlib","zoneinfo",
+    ]
+
+    /// 从脚本内容中提取第三方依赖引用。返回 (依赖名, 类型)。
+    static func extractDeps(from content: String, filename: String) -> [(name: String, type: Int)] {
+        var result: [(String, Int)] = []
+        var seen = Set<String>()
+        func add(_ name: String, _ type: Int) {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            let k = "\(trimmed.lowercased())|\(type)"
+            guard !seen.contains(k) else { return }
+            seen.insert(k)
+            result.append((trimmed, type))
+        }
+        let ext = (filename as NSString).pathExtension.lowercased()
+
+        if ext == "py" {
+            // import a / import a.b / from a.b import c（跳过 from . import 相对导入）
+            if let re = try? NSRegularExpression(pattern: #"(?m)^\s*(?:import|from)\s+([A-Za-z_][A-Za-z0-9_.]*)"#) {
+                let ns = content as NSString
+                for m in re.matches(in: content, range: NSRange(content.startIndex..., in: content)) {
+                    guard let r = Range(m.range(at: 1), in: content) else { continue }
+                    let mod = String(content[r])
+                    let top = mod.split(separator: ".").first.map(String.init) ?? mod
+                    guard !pythonStdlib.contains(top.lowercased()) else { continue }
+                    add(top, 1)
+                }
+            }
+        } else if ext == "sh" {
+            // apk add / apt-get install / pip3 install / npm i -g 等
+            if let re = try? NSRegularExpression(pattern: #"(?m)(?:apk\s+(?:--\S+\s+)*add|apt(?:-get)?\s+(?:-\S+\s+)*install|yum\s+(?:-\S+\s+)*install|dnf\s+(?:-\S+\s+)*install|pip3?\s+install|npm\s+(?:i|install|add)\s+(?:-g\s+)?|pnpm\s+add\s+(?:-g\s+)?|python3?\s+-m\s+pip\s+install)\s+([^\n;&|]+)"#) {
+                let ns = content as NSString
+                for m in re.matches(in: content, range: NSRange(content.startIndex..., in: content)) {
+                    guard let r = Range(m.range(at: 1), in: content) else { continue }
+                    let seg = String(content[r])
+                    for raw in seg.split(whereSeparator: { $0 == " " || $0 == "\t" }) {
+                        var token = String(raw)
+                        if token.hasPrefix("-") { continue }
+                        // 去掉版本约束：pkg==1.0 / pkg>=1 / pkg@1.2
+                        if let eq = token.firstIndex(of: "=") { token = String(token[..<eq]) }
+                        if let at = token.firstIndex(of: "@"), !token.hasPrefix("@") { token = String(token[..<at]) }
+                        token = token.trimmingCharacters(in: .whitespaces)
+                        guard !token.isEmpty else { continue }
+                        if token.lowercased() == "install" { continue }
+                        add(token, 2)
+                    }
+                }
+            }
+        } else {
+            // JS/TS: require('x') / from 'x' / import 'x'
+            let patterns = [
+                #"require\(\s*['"]([^'"\n]+)['"]\s*\)"#,
+                #"from\s+['"]([^'"\n]+)['"]"#,
+                #"import\s+['"]([^'"\n]+)['"]"#,
+                #"import\(\s*['"]([^'"\n]+)['"]\s*\)"#,
+            ]
+            for p in patterns {
+                guard let re = try? NSRegularExpression(pattern: p) else { continue }
+                for m in re.matches(in: content, range: NSRange(content.startIndex..., in: content)) {
+                    guard let r = Range(m.range(at: 1), in: content) else { continue }
+                    let spec = String(content[r])
+                    if spec.hasPrefix(".") || spec.hasPrefix("/") || spec.hasPrefix("node:") { continue }
+                    let parts = spec.split(separator: "/").map(String.init)
+                    guard var name = parts.first, !name.isEmpty else { continue }
+                    if name.hasPrefix("@"), parts.count >= 2 { name = parts[0] + "/" + parts[1] }
+                    guard !nodeBuiltins.contains(name.lowercased()) else { continue }
+                    add(name, 0)
+                }
+            }
+        }
+        return result
+    }
+
+    // MARK: - 文件备份 / 恢复（原 VIP 功能，现免费）
+
+    @Published var backupProgress: String = ""
+
+    private struct BackupFile: Codable { var path: String = ""; var name: String = ""; var content: String = "" }
+    private struct BackupPayload: Codable {
+        var app: String = "QinglongClientPro"
+        var version: Int = 1
+        var panel: String = ""
+        var exportedAt: String = ""
+        var scripts: [BackupFile] = []
+        var configs: [BackupFile] = []
+    }
+
+    /// 导出面板脚本 + 配置为 JSON 文件，返回本机文件 URL。
+    func exportBackup() async throws -> URL {
+        await loadConfigFiles()
+        backupProgress = "收集脚本列表…"
+        // 递归收集全部脚本文件（显式栈）
+        var stack: [String] = [""]
+        var visited = Set<String>()
+        var files: [(path: String, name: String)] = []
+        while !stack.isEmpty {
+            let dir = stack.removeLast()
+            let nodes = try await self.client.getFileList(path: dir.isEmpty ? nil : dir)
+            for n in nodes {
+                let key = n.key.isEmpty ? n.title : n.key
+                if visited.contains(key) { continue }
+                visited.insert(key)
+                if n.isDirectory { stack.append(key) }
+                else { files.append((n.parent, n.title)) }
+            }
+        }
+        var scripts: [BackupFile] = []
+        for (idx, f) in files.enumerated() {
+            backupProgress = "读取脚本 \(f.name)（\(idx + 1)/\(files.count)）"
+            let content = (try? await self.client.getFileContent(path: f.path, file: f.name)) ?? ""
+            scripts.append(BackupFile(path: f.path, name: f.name, content: content))
+        }
+        var configs: [BackupFile] = []
+        for (idx, cfg) in configFiles.enumerated() {
+            backupProgress = "读取配置 \(cfg.title)（\(idx + 1)/\(configFiles.count)）"
+            let content = (try? await self.client.getConfigContent(path: cfg.value)) ?? ""
+            configs.append(BackupFile(path: "", name: cfg.value, content: content))
+        }
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let payload = BackupPayload(panel: connection.name, exportedAt: df.string(from: Date()),
+                                    scripts: scripts, configs: configs)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(payload)
+        df.dateFormat = "yyyyMMdd-HHmmss"
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("qinglong-backup-\(df.string(from: Date())).json")
+        try data.write(to: url)
+        backupProgress = ""
+        return url
+    }
+
+    /// 从备份 JSON 恢复脚本 + 配置到面板，返回恢复的文件数量。
+    func restoreBackup(from url: URL) async throws -> Int {
+        isBusy = true
+        defer { isBusy = false; backupProgress = "" }
+        let data = try Data(contentsOf: url)
+        let payload = try JSONDecoder().decode(BackupPayload.self, from: data)
+        // 先补齐目录
+        let dirs = Set(payload.scripts.map { $0.path }.filter { !$0.isEmpty })
+        for d in dirs {
+            backupProgress = "创建目录 \(d)"
+            if let last = d.lastIndex(of: "/") {
+                _ = try? await self.client.createDirectory(path: String(d[d.startIndex..<last]),
+                                                           dirname: String(d[d.index(after: last)...]))
+            } else {
+                _ = try? await self.client.createDirectory(path: "", dirname: d)
+            }
+        }
+        var count = 0
+        for (idx, f) in payload.scripts.enumerated() {
+            backupProgress = "恢复脚本 \(f.name)（\(idx + 1)/\(payload.scripts.count)）"
+            do { try await self.client.saveFileContent(path: f.path, filename: f.name, content: f.content) }
+            catch { try await self.client.createFile(path: f.path, filename: f.name, content: f.content) }
+            count += 1
+        }
+        for (idx, f) in payload.configs.enumerated() {
+            backupProgress = "恢复配置 \(f.name)（\(idx + 1)/\(payload.configs.count)）"
+            try await self.client.saveConfig(name: f.name, content: f.content)
+            count += 1
+        }
+        await loadFiles()
+        await loadConfigFiles()
+        return count
+    }
 }

@@ -9,7 +9,6 @@ struct ScriptListView: View {
     @State private var confirmDelete: FileNode? = nil
 
     var body: some View {
-        NavigationStack {
             VStack(spacing: 0) {
                 pathBar
                 List {
@@ -49,7 +48,6 @@ struct ScriptListView: View {
                     confirmDelete = nil
                 }
             } message: { Text(confirmDelete.map { "确定删除 \($0.title)？此操作不可恢复。" } ?? "") }
-        }
     }
 
     private var sortedNodes: [FileNode] {

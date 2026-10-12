@@ -586,4 +586,67 @@ final class APIClient {
     func getSystemLog(limit: Int = 100000) async throws -> String {
         try await getText(path: "/system/log", query: [URLQueryItem(name: "limit", value: String(limit))])
     }
+
+    // MARK: - 当前用户 (GET/PUT /api/user)
+
+    func getCurrentUser() async throws -> UserInfo {
+        let data = try await request(path: "/user", method: "GET")
+        guard let dataObj = try unwrap(data) else { return UserInfo() }
+        let re = try JSONSerialization.data(withJSONObject: dataObj)
+        return (try? JSONDecoder().decode(UserInfo.self, from: re)) ?? UserInfo()
+    }
+
+    /// 修改用户名 / 密码（PUT /api/user，两个字段均必填）。
+    func updateUsernameAndPassword(username: String, password: String) async throws {
+        let body = try jsonBody(["username": username, "password": password])
+        try ensureOK(try await request(path: "/user", method: "PUT", body: body))
+    }
+
+    // MARK: - 登录日志 (GET /api/user/login-log)
+
+    func getLoginLogs() async throws -> [LoginLogEntry] {
+        let data = try await request(path: "/user/login-log", method: "GET")
+        guard let dataObj = try unwrap(data) else { return [] }
+        let re = try JSONSerialization.data(withJSONObject: dataArray(from: dataObj))
+        return (try? JSONDecoder().decode([LoginLogEntry].self, from: re)) ?? []
+    }
+
+    // MARK: - 通知设置 (GET/PUT /api/user/notification)
+
+    func getNotificationConfig() async throws -> NotificationConfig {
+        let data = try await request(path: "/user/notification", method: "GET")
+        guard let dataObj = try unwrap(data) else { return NotificationConfig() }
+        let re = try JSONSerialization.data(withJSONObject: dataObj)
+        return (try? JSONDecoder().decode(NotificationConfig.self, from: re)) ?? NotificationConfig()
+    }
+
+    func updateNotificationConfig(_ payload: [String: String]) async throws {
+        let body = try jsonBody(payload)
+        try ensureOK(try await request(path: "/user/notification", method: "PUT", body: body))
+    }
+
+    // MARK: - 系统日志文件 (GET /api/logs)
+
+    func getLogFiles() async throws -> [FileNode] {
+        let data = try await request(path: "/logs", method: "GET")
+        guard let dataObj = try unwrap(data) else { return [] }
+        let re = try JSONSerialization.data(withJSONObject: dataArray(from: dataObj))
+        return (try? JSONDecoder().decode([FileNode].self, from: re)) ?? []
+    }
+
+    func getLogFileContent(path: String, file: String, tail: Bool = true) async throws -> String {
+        var q = [URLQueryItem(name: "file", value: file)]
+        if !path.isEmpty { q.append(URLQueryItem(name: "path", value: path)) }
+        if tail { q.append(URLQueryItem(name: "tail", value: "true")) }
+        let data = try await requestQ(path: "/logs/detail", method: "GET", query: q)
+        // 响应为 JSON：{ code, data, logStatus, offset, nextOffset, total, truncated }
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let text = obj["data"] as? String { return text }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    func deleteLogFile(path: String, file: String) async throws {
+        let body = try jsonBody(["filename": file, "path": path])
+        try ensureOK(try await request(path: "/logs", method: "DELETE", body: body))
+    }
 }

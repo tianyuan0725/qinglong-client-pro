@@ -10,7 +10,6 @@ struct AppListView: View {
     @State private var showSecret = false
 
     var body: some View {
-        NavigationStack {
             List {
                 if session.apps.isEmpty {
                     Text("暂无应用，点击右上角添加")
@@ -66,7 +65,6 @@ struct AppListView: View {
                 Button("复制") { UIPasteboard.general.string = newSecret }
                 Button("好", role: .cancel) { }
             } message: { Text("请立即复制保存，密钥仅显示一次：\n\(newSecret)") }
-        }
     }
 }
 

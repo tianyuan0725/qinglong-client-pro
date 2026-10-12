@@ -10,6 +10,8 @@ struct QinglongClientProApp: App {
             RootView()
                 .environmentObject(store)
                 .environmentObject(appState)
+                .environment(\.sizeCategory, appState.contentSizeCategory)
+                .tint(qlBrandGreen)
                 .preferredColorScheme(appState.preferredColorScheme)
         }
     }

@@ -1,6 +1,7 @@
 import SwiftUI
 
-struct SettingsView: View {
+/// 系统设置（面板级配置：标题 / 时区 / 清理 / 并发 / 代理 / 镜像）。
+struct SystemSettingsView: View {
     @EnvironmentObject var session: PanelSession
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var store: ConnectionStore
@@ -11,7 +12,6 @@ struct SettingsView: View {
     private var info: SystemConfigInfo? { session.systemConfig?.info }
 
     var body: some View {
-        NavigationStack {
             List {
                 Section("外观") {
                     Picker("主题", selection: $appState.colorSchemeRaw) {
@@ -80,20 +80,6 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("关于") {
-                    if let pi = session.panelInfo {
-                        if let b = pi.branch { LabeledContent("分支", value: b) }
-                        if let t = pi.publishDateText { LabeledContent("发布时间", value: t) }
-                        if let link = pi.changeLogLink, let url = URL(string: link) {
-                            Link(destination: url) {
-                                Label("查看更新日志", systemImage: "arrow.up.right.square")
-                            }
-                        }
-                    }
-                    LabeledContent("应用", value: "青龙客户端 Pro")
-                    LabeledContent("版本", value: appVersion)
-                }
-
                 Section("面板管理") {
                     Button {
                         appState.selected = nil
@@ -114,12 +100,11 @@ struct SettingsView: View {
                     }
                 }
             }
-            .navigationTitle("设置")
+            .navigationTitle("系统设置")
             .sheet(isPresented: $showNotify) {
                 NotifyTestView()
                     .environmentObject(session)
             }
-        }
     }
 
     private func configLink(_ title: String, _ value: String, numeric: Bool = false, save: @escaping (String) async -> Void) -> some View {
