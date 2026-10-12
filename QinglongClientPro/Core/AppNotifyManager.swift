@@ -6,7 +6,7 @@ import UserNotifications
 /// 注意与「面板服务端通知渠道」（Bark / Server 酱等，PUT /api/system/notify）
 /// 是两回事：本类只在设备本地发通知，不依赖面板配置。
 @MainActor
-final class AppNotifyManager: ObservableObject, UNUserNotificationCenterDelegate {
+final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
     static let shared = AppNotifyManager()
 
     /// 总开关：任务运行时发送本地通知。
