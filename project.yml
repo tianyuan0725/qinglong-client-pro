@@ -1,0 +1,33 @@
+name: QinglongClientPro
+options:
+  bundleIdPrefix: com.tianyuan
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+packages: {}
+targets:
+  QinglongClientPro:
+    type: application
+    platform: iOS
+    sources:
+      - path: QinglongClientPro
+        excludes:
+          - "Info.plist"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tianyuan.qinglongpro
+        PRODUCT_NAME: QinglongClientPro
+        SWIFT_VERSION: "5.9"
+        INFOPLIST_FILE: QinglongClientPro/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_BITCODE: NO
+        VALID_ARCHS: "arm64"
+        ARCHS: "arm64"
+        # Unsigned build so TrollStore / alternate store can re-sign the IPA.
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
