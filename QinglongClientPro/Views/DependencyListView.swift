@@ -5,6 +5,8 @@ struct DependencyListView: View {
     @State private var showEditor = false
     @State private var editing: Dependency? = nil
     @State private var confirmDelete: [Dependency]? = nil
+    @State private var typeSegment = -1        // -1 全部 / 0 Node / 1 Python / 2 Linux
+    @State private var statusSegment = ""      // "" 全部 / 状态数字
 
     var body: some View {
         NavigationStack {
@@ -63,8 +65,6 @@ struct DependencyListView: View {
                 }
             } message: { Text(confirmDelete.map { "确定删除依赖 \($0.first?.name ?? "")？" } ?? "") }
         }
-        .onChange(of: session.depTypeFilter) { Task { await session.loadDependencies() } }
-        .onChange(of: session.depStatusFilter) { Task { await session.loadDependencies() } }
     }
 
     private func statusColor(_ dep: Dependency) -> Color {
@@ -77,19 +77,23 @@ struct DependencyListView: View {
 
     private var filterBar: some View {
         VStack(spacing: 8) {
-            Picker("类型", selection: $session.depTypeFilter) {
-                Text("全部").tag(Int?.none)
-                Text("Node.js").tag(Int?.some(0))
-                Text("Python3").tag(Int?.some(1))
-                Text("Linux").tag(Int?.some(2))
+            Picker("类型", selection: $typeSegment) {
+                Text("全部").tag(-1)
+                Text("Node.js").tag(0)
+                Text("Python3").tag(1)
+                Text("Linux").tag(2)
             }
             .pickerStyle(.segmented)
+            .onChange(of: typeSegment) { newVal in
+                session.depTypeFilter = newVal < 0 ? nil : newVal
+                Task { await session.loadDependencies() }
+            }
 
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("搜索依赖名", text: $session.depSearch)
                     .onSubmit { Task { await session.loadDependencies() } }
-                Picker("状态", selection: $session.depStatusFilter) {
+                Picker("状态", selection: $statusSegment) {
                     Text("全部").tag("")
                     Text("已安装").tag("1")
                     Text("安装中").tag("0")
@@ -98,6 +102,10 @@ struct DependencyListView: View {
                 }
                 .pickerStyle(.menu)
                 .frame(width: 110)
+                .onChange(of: statusSegment) { newVal in
+                    session.depStatusFilter = newVal
+                    Task { await session.loadDependencies() }
+                }
             }
         }
         .padding(.horizontal, 12)

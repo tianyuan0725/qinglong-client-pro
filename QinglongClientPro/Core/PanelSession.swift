@@ -328,14 +328,14 @@ final class PanelSession: ObservableObject {
         catch { lastError = error.localizedDescription }
     }
 
-    func setPanelTitle(_ v: String) async { await applyConfigField { try await client.updatePanelTitle(v) } }
-    func setTimezone(_ v: String) async { await applyConfigField { try await client.updateTimezone(v) } }
-    func setLogRemoveFrequency(_ v: Int?) async { await applyConfigField { try await client.updateLogRemoveFrequency(v) } }
-    func setCronConcurrency(_ v: Int?) async { await applyConfigField { try await client.updateCronConcurrency(v) } }
-    func setDependenceProxy(_ v: String) async { await applyConfigField { try await client.updateDependenceProxy(v) } }
-    func setNodeMirror(_ v: String) async { await applyConfigField { try await client.updateNodeMirror(v) } }
-    func setPythonMirror(_ v: String) async { await applyConfigField { try await client.updatePythonMirror(v) } }
-    func setLinuxMirror(_ v: String) async { await applyConfigField { try await client.updateLinuxMirror(v) } }
+    func setPanelTitle(_ v: String) async { await applyConfigField { try await self.client.updatePanelTitle(v) } }
+    func setTimezone(_ v: String) async { await applyConfigField { try await self.client.updateTimezone(v) } }
+    func setLogRemoveFrequency(_ v: Int?) async { await applyConfigField { try await self.client.updateLogRemoveFrequency(v) } }
+    func setCronConcurrency(_ v: Int?) async { await applyConfigField { try await self.client.updateCronConcurrency(v) } }
+    func setDependenceProxy(_ v: String) async { await applyConfigField { try await self.client.updateDependenceProxy(v) } }
+    func setNodeMirror(_ v: String) async { await applyConfigField { try await self.client.updateNodeMirror(v) } }
+    func setPythonMirror(_ v: String) async { await applyConfigField { try await self.client.updatePythonMirror(v) } }
+    func setLinuxMirror(_ v: String) async { await applyConfigField { try await self.client.updateLinuxMirror(v) } }
 
     func applyConfigField(_ apply: @escaping () async throws -> Void) async {
         isBusy = true; defer { isBusy = false }
