@@ -12,7 +12,7 @@ struct DashboardView: View {
                 // MARK: 系统状态（紧凑 2 列网格）
                 Section {
                     if let sys = session.dashboardSystem {
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                             statusCell("memorychip", "内存使用率", sys.memoryPercentText)
                             statusCell("internaldrive", "内存", sys.memoryBytesText)
                             statusCell("clock", "系统运行", sys.uptimeText)
@@ -190,21 +190,28 @@ struct DashboardView: View {
         Button {
             todaySheet = mode
         } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 4) {
                     Image(systemName: icon)
                         .foregroundStyle(color)
-                    Spacer()
+                    Spacer(minLength: 2)
                     Text("\(value)")
-                        .font(.title.weight(.semibold).monospacedDigit())
+                        .font(.title3.weight(.semibold).monospacedDigit())
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.tertiary)
                 }
                 Text(title)
-                    .font(.footnote)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .padding(14)
+            .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(color.opacity(0.4), lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
     }
@@ -212,21 +219,28 @@ struct DashboardView: View {
     // MARK: - 组件
 
     /// 紧凑状态单元：图标 + 标题 + 数值横向排布，用于系统状态的 2 列网格。
+    /// 系统状态单元：独立小卡，图标 + 标签在上、大数值在下。
     private func statusCell(_ icon: String, _ title: String, _ value: String?) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: icon)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(title)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 2)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.caption2)
+                    .foregroundStyle(qlBrandGreen)
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
             Text(value ?? "—")
-                .font(.subheadline.monospacedDigit().weight(.medium))
+                .font(.headline.monospacedDigit())
                 .foregroundStyle(value == nil ? .secondary : .primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func statTile(_ title: String, _ value: Int, _ icon: String, _ color: Color) -> some View {
@@ -236,15 +250,15 @@ struct DashboardView: View {
                     .foregroundStyle(color)
                 Spacer()
                 Text("\(value)")
-                    .font(.title.weight(.semibold).monospacedDigit())
+                    .font(.title3.weight(.semibold).monospacedDigit())
             }
             Text(title)
-                .font(.footnote)
+                .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .padding(14)
+        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
     }
 
     /// 文本数值瓦片（用于成功率、平均耗时等非整数指标）。
@@ -255,17 +269,17 @@ struct DashboardView: View {
                     .foregroundStyle(color)
                 Spacer()
                 Text(value)
-                    .font(.title.weight(.semibold).monospacedDigit())
+                    .font(.title3.weight(.semibold).monospacedDigit())
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
             Text(title)
-                .font(.footnote)
+                .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .padding(14)
+        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var runningCrons: [CronTask] {
