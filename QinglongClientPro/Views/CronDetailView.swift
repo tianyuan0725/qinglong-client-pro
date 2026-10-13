@@ -88,7 +88,8 @@ struct CronDetailView: View {
                     let ok = await session.runCron([cron.id])
                     if ok {
                         AppNotifyManager.shared.notifyCronStarted(name: cron.name)
-                        AppNotifyManager.shared.watchCron(session: session, cronId: cron.id, name: cron.name)
+                        // 完成通知由 CronWatchService 全局轮询统一发出
+                        CronWatchService.shared.noteManualStart(cronId: cron.id)
                     }
                 }
             }

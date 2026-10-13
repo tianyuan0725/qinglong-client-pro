@@ -61,10 +61,12 @@ struct CronListView: View {
                                     Task { @MainActor in
                                         // 本地通知：任务开始执行即提醒，结束后再提醒一次
                                         // （用户要的是苹果系统弹窗，类微信横幅）
+                                        // 完成通知与浏览器/面板定时触发的任务一样，统一由
+                                        // CronWatchService 全局轮询发出（任何来源都覆盖）。
                                         let ok = await session.runCron([cron.id])
                                         if ok {
                                             AppNotifyManager.shared.notifyCronStarted(name: cron.name)
-                                            AppNotifyManager.shared.watchCron(session: session, cronId: cron.id, name: cron.name)
+                                            CronWatchService.shared.noteManualStart(cronId: cron.id)
                                         }
                                     }
                                 } label: { Label("运行", systemImage: "play") }
@@ -123,11 +125,8 @@ struct CronListView: View {
                 if session.systemInfo == nil { await session.loadSystem() }
                 if session.panelInfo == nil { await session.loadPanelInfo() }
                 if session.subscriptions.isEmpty { await session.loadSubscriptions() }
-                // 自动监听运行中任务：面板定时自动跑的任务，完成时也发本地通知
-                // （不只是手动点「运行」的；watchCron 内部去重）
-                for cron in session.crons where cron.isRunning {
-                    AppNotifyManager.shared.watchCron(session: session, cronId: cron.id, name: cron.name)
-                }
+                // 运行中任务的完成通知由 CronWatchService 全局轮询统一处理
+                // （任何来源启动的任务都覆盖：App 手动 / 浏览器 / 面板定时）。
             }
         }
     }

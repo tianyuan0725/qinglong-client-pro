@@ -6,6 +6,7 @@ struct PanelTabView: View {
     @EnvironmentObject var notify: AppNotifyManager
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var store: ConnectionStore
+    @Environment(\.scenePhase) private var scenePhase
 
     init(connection: Connection) {
         self.connection = connection
@@ -38,7 +39,10 @@ struct PanelTabView: View {
                 .tint(qlBrandGreen)
                 .environmentObject(session)
                 .overlay { if session.isBusy { LoadingOverlay() } }
-                .errorToast($session.lastError)
+                // 后台期间请求可能因挂起/恢复失败（超时类错误），
+                // 不在后台弹 toast 打扰用户（v2.3.0 反馈「后台有请求超时提示」）。
+                .errorToast(scenePhase == .active ? $session.lastError : .constant(nil))
+                .onDisappear { CronWatchService.shared.stop() }
             } else {
                 LoginView()
                     .environmentObject(session)
@@ -54,6 +58,9 @@ struct PanelTabView: View {
             } else {
                 await session.login()
             }
+            // 全局任务监听：任何来源（App 手动 / 青龙网页 / 面板定时）运行的
+            // 任务都发本地通知；退后台由 BackgroundKeeper 保活继续实时轮询。
+            CronWatchService.shared.start(session: session)
         }
     }
 

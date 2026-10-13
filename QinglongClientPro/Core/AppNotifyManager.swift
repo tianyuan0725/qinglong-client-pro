@@ -107,9 +107,6 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
         syncBadge()
     }
 
-    /// 正在监听完成状态的任务 id（避免重复轮询）。
-    private var watchingIds = Set<String>()
-
     private override init() {
         super.init()
         loadMessages()
@@ -187,51 +184,5 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
         var body = "任务「\(name)」执行完成"
         if !detail.isEmpty { body += "\n" + detail }
         notify(title: "青龙客户端 Pro", body: body)
-    }
-
-    // MARK: - 运行状态轮询
-
-    /// 任务启动后轮询运行状态，结束时发「已完成」通知。
-    /// 轮询同时会刷新任务列表（副作用：列表状态保持最新）。
-    /// 去重：同一任务同时只允许一个监听（列表页自动监听 + 手动运行都会调用）。
-    /// - Parameters:
-    ///   - session: 当前面板会话
-    ///   - cronId: 任务 id
-    ///   - name: 任务名称（通知文案用）
-    func watchCron(session: PanelSession, cronId: String, name: String) {
-        guard !watchingIds.contains(cronId) else { return }
-        watchingIds.insert(cronId)
-        Task { @MainActor in
-            // 最多轮询 10 分钟（120 × 3s…按 5s 算 120 次），超时不再打扰。
-            defer { watchingIds.remove(cronId) }
-            for _ in 0..<120 {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                await session.loadCrons()
-                if let cron = session.crons.first(where: { $0.id == cronId }), !cron.isRunning {
-                    // 组装推送通知的详细内容：耗时 + 日志末尾（与面板推送内容一致），
-                    // 而不是只写「执行成功/失败」。
-                    let detail = await cronFinishDetail(session: session, cron: cron)
-                    notifyCronFinished(name: name, detail: detail)
-                    return
-                }
-            }
-        }
-    }
-
-    /// 组装任务完成通知的详细内容（耗时 + 日志末尾若干行）。
-    private func cronFinishDetail(session: PanelSession, cron: CronTask) async -> String {
-        var parts: [String] = []
-        if let secs = cron.lastRunningTime?.value, secs > 0 {
-            parts.append(secs >= 60
-                ? String(format: "耗时：%.1f 分钟", Double(secs) / 60)
-                : String(format: "耗时：%d 秒", secs))
-        }
-        let logTail = await session.cronLogTail(id: cron.id)
-        if !logTail.isEmpty {
-            if !parts.isEmpty { parts.append("") }
-            parts.append("—— 日志末尾 ——")
-            parts.append(logTail)
-        }
-        return parts.joined(separator: "\n")
     }
 }

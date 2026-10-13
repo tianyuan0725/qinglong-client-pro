@@ -1,4 +1,5 @@
 import SwiftUI
+import BackgroundTasks
 
 @main
 struct QinglongClientProApp: App {
@@ -8,6 +9,8 @@ struct QinglongClientProApp: App {
     @StateObject private var updater = UpdateChecker.shared
     // 本地通知（任务运行弹窗提醒）：单例，尽早创建以注册通知 delegate
     @StateObject private var notifier = AppNotifyManager.shared
+    // 后台刷新任务注册（BGTaskScheduler 需在 didFinishLaunching 时登记）
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -39,6 +42,23 @@ struct QinglongClientProApp: App {
                 break
             }
         }
+    }
+}
+
+/// 后台刷新任务注册：App 被系统挂起/杀掉后，系统择机唤醒 App 补一次
+/// 任务状态轮询（CronWatchService.handleBackgroundRefresh）。
+/// 标识需同时登记在 Info.plist 的 BGTaskSchedulerPermittedIdentifiers。
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: "com.qlpro.cronrefresh", using: nil
+        ) { task in
+            Task { @MainActor in
+                CronWatchService.shared.handleBackgroundRefresh(task: task as? BGAppRefreshTask)
+            }
+        }
+        return true
     }
 }
 
