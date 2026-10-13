@@ -66,7 +66,7 @@ final class CronWatchService: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.poll() }
         }
-        poll() // 立即来一轮，不等第一个 5 秒间隔
+        Task { await poll() } // 立即来一轮，不等第一个 5 秒间隔
     }
 
     /// 停止监听（退出面板时调用）。
