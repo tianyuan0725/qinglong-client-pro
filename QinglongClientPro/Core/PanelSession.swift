@@ -261,16 +261,6 @@ final class PanelSession: ObservableObject {
     }
 
     /// 任务日志末尾若干行（用于「执行完成」通知的详细内容；失败返回空串）。
-    func cronLogTail(id: String, lines: Int = 10) async -> String {
-        guard let log = try? await client.cronLog(id: id) else { return "" }
-        let tail = log
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .map(String.init)
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .suffix(lines)
-        return tail.joined(separator: "\n")
-    }
-
     // MARK: - 脚本管理
 
     func loadFiles() async {

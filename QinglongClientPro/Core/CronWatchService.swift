@@ -8,7 +8,7 @@ import BackgroundTasks
 /// 任务，用户在青龙网页里手动触发的任务、面板 cron 到点自动跑的任务都收不到
 /// 提醒（v2.3.0 用户反馈「浏览器运行的 APP 没有通知」）。现在改为全局轮询
 /// 全部任务的运行状态，**任何来源**启动的任务都发本地通知；任务结束时通知
-/// 带耗时 + 日志末尾详情（与面板推送内容一致）。
+/// 带「执行成功 + 耗时 + 完成时间」（对齐青龙面板推送到微信的通知格式）。
 ///
 /// 后台实时性：配合 BackgroundKeeper（静音保活）退后台不被系统挂起，轮询
 /// 继续跑，完成时即刻弹通知；App 被系统杀掉后由 BGAppRefreshTask 兜底补轮询，
@@ -25,8 +25,15 @@ final class CronWatchService: ObservableObject {
     private weak var session: PanelSession?
     private var timer: Timer?
 
-    /// 轮询间隔（秒）：完成检测延迟 ≤ 5 秒，即「实时通知」。
-    private let interval: TimeInterval = 5
+    /// 轮询间隔（秒）：用户可在通知栏顶部自定义（3–60 秒，默认 5）。
+    /// 间隔越大越省电，完成检测延迟也越大。
+    private var interval: TimeInterval {
+        let v = UserDefaults.standard.integer(forKey: intervalKey)
+        return v >= 3 ? TimeInterval(v) : 5
+    }
+
+    /// 轮询间隔持久化 key（与通知栏顶部设置联动）。
+    private let intervalKey = "qlpro_poll_interval"
 
     /// 上一轮各任务运行状态（id -> isRunning，仅内存，用于运行状态转换检测）。
     private var lastStates: [String: Bool] = [:]
@@ -60,8 +67,10 @@ final class CronWatchService: ObservableObject {
         guard timer == nil else { return }
         isWatching = true
         baselined = false
-        // 本地通知开着才保活：退后台不被挂起，轮询才能继续实时通知
-        if AppNotifyManager.shared.enabled { BackgroundKeeper.shared.start() }
+        // 本地通知开着、且用户没关保活开关，才退后台保活（省电优先）
+        if AppNotifyManager.shared.enabled && BackgroundKeeper.shared.isEnabled {
+            BackgroundKeeper.shared.start()
+        }
         scheduleBackgroundRefresh()
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.poll() }
@@ -86,13 +95,27 @@ final class CronWatchService: ObservableObject {
         manualStartNotified.insert(cronId)
     }
 
+    /// 用户在通知栏修改轮询间隔后调用：立即按新间隔重启定时器。
+    /// 未在监听时仅记录，下次 start() 自然读取新值。
+    func updateInterval(_ newInterval: TimeInterval) {
+        guard timer != nil else { return }
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: newInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.poll() }
+        }
+        Task { await poll() } // 立即按新间隔来一轮
+    }
+
     // MARK: - 轮询
 
     private func poll() async {
         guard let session, session.isAuthenticated else { return }
-        // 通知开关变化时自动同步保活（开着才值得后台耗电）
-        if AppNotifyManager.shared.enabled { BackgroundKeeper.shared.start() }
-        else { BackgroundKeeper.shared.stop() }
+        // 通知/保活开关变化时自动同步（开着才值得后台耗电）
+        if AppNotifyManager.shared.enabled && BackgroundKeeper.shared.isEnabled {
+            BackgroundKeeper.shared.start()
+        } else {
+            BackgroundKeeper.shared.stop()
+        }
         await pollOnce(session: session)
     }
 
@@ -132,7 +155,7 @@ final class CronWatchService: ObservableObject {
                 } else if !alreadyNotified {
                     manualStartNotified.remove(id)
                     lastNotifiedExec[id] = execTime
-                    let detail = await finishDetail(session: session, cron: cron)
+                    let detail = finishDetail(cron: cron)
                     AppNotifyManager.shared.notifyCronFinished(name: cron.name, detail: detail)
                 } else {
                     manualStartNotified.remove(id)
@@ -142,7 +165,7 @@ final class CronWatchService: ObservableObject {
                 changed = true
                 manualStartNotified.remove(id)
                 lastNotifiedExec[id] = execTime
-                let detail = await finishDetail(session: session, cron: cron)
+                let detail = finishDetail(cron: cron)
                 AppNotifyManager.shared.notifyCronFinished(name: cron.name, detail: detail)
             }
         }
@@ -165,7 +188,7 @@ final class CronWatchService: ObservableObject {
                     let known = previousExec[id]
                     // 有新执行（或首次记录到该任务有执行）且没在跑 → 离线期间完成
                     if execTime > 0, (known == nil || execTime > known!) {
-                        let detail = await finishDetail(session: session, cron: cron)
+                        let detail = finishDetail(cron: cron)
                         AppNotifyManager.shared.notifyCronFinished(name: cron.name, detail: detail)
                     }
                 }
@@ -180,21 +203,27 @@ final class CronWatchService: ObservableObject {
         saveSnapshot()
     }
 
-    /// 组装任务完成通知的详细内容（耗时 + 日志末尾若干行）。
-    private func finishDetail(session: PanelSession, cron: CronTask) async -> String {
-        var parts: [String] = []
+    /// 组装任务完成通知的详细内容（对齐青龙面板推送到微信的通知格式）：
+    /// 「执行成功 + 耗时 + 完成时间」，不打印脚本日志。
+    private func finishDetail(cron: CronTask) -> String {
+        var lines: [String] = ["执行成功"]
         if let secs = cron.lastRunningTime?.value, secs > 0 {
-            parts.append(secs >= 60
-                ? String(format: "耗时：%.1f 分钟", Double(secs) / 60)
-                : String(format: "耗时：%d 秒", secs))
+            lines.append(secs >= 60
+                ? String(format: "耗时: %.1f 分钟", Double(secs) / 60)
+                : String(format: "耗时: %d 秒", secs))
         }
-        let logTail = await session.cronLogTail(id: cron.id)
-        if !logTail.isEmpty {
-            if !parts.isEmpty { parts.append("") }
-            parts.append("—— 日志末尾 ——")
-            parts.append(logTail)
+        if let ms = cron.lastExecutionTime?.value, ms > 0 {
+            lines.append("时间: \(Self.timeText(ms: ms))")
         }
-        return parts.joined(separator: "\n")
+        return lines.joined(separator: "\n")
+    }
+
+    /// last_execution_time（毫秒时间戳）→ "HH:mm:ss"。
+    private static func timeText(ms: Int) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(ms) / 1000)
+        let fmt = DateFormatter()
+        fmt.dateFormat = "HH:mm:ss"
+        return fmt.string(from: date)
     }
 
     // MARK: - 快照持久化

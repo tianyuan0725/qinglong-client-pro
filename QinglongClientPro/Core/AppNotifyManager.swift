@@ -172,17 +172,16 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
     }
 
     /// 任务开始执行提醒。
+    /// 任务开始执行提醒（格式对齐青龙面板推送）。
     func notifyCronStarted(name: String) {
         guard enabled, notifyOnStart else { return }
-        notify(title: "青龙客户端 Pro", body: "任务「\(name)」已开始执行")
+        notify(title: "任务: \(name)", body: "开始执行")
     }
 
-    /// 任务执行完成提醒。
-    /// - Parameter detail: 推送通知的详细内容（耗时 / 日志末尾等）；为空时只显示完成状态。
+    /// 任务执行完成提醒（格式对齐青龙面板推送到微信的通知）。
+    /// - Parameter detail: 详细内容（执行成功 / 耗时 / 完成时间）；为空时只显示执行成功。
     func notifyCronFinished(name: String, detail: String = "") {
         guard enabled, notifyOnFinish else { return }
-        var body = "任务「\(name)」执行完成"
-        if !detail.isEmpty { body += "\n" + detail }
-        notify(title: "青龙客户端 Pro", body: body)
+        notify(title: "任务: \(name)", body: detail.isEmpty ? "执行成功" : detail)
     }
 }

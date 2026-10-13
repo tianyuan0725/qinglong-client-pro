@@ -6,14 +6,42 @@ import SwiftUI
 /// （App 手动 / 青龙网页 / 面板定时自动跑）。
 struct NotificationCenterView: View {
     @EnvironmentObject var notify: AppNotifyManager
-    @State private var showTaskChat = false
+    /// 后台保活开关：退后台播放静音音频防止被系统挂起（关闭更省电，通知可能延迟）。
+    @AppStorage("qlpro_keepalive") private var keepAliveOn: Bool = true
+    /// 任务状态轮询间隔（秒，3–60）：越大越省电，完成通知延迟也越大。
+    @AppStorage("qlpro_poll_interval") private var pollInterval: Int = 5
 
     var body: some View {
         NavigationStack {
             List {
+                // MARK: 后台保活与轮询（省电设置）
+                Section {
+                    Toggle("后台保活", isOn: $keepAliveOn)
+                        .onChange(of: keepAliveOn) { on in
+                            BackgroundKeeper.shared.setEnabled(on)
+                        }
+                    Stepper(value: $pollInterval, in: 3...60, step: 1) {
+                        HStack {
+                            Text("轮询间隔")
+                            Spacer()
+                            Text("\(pollInterval) 秒")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .onChange(of: pollInterval) { v in
+                        CronWatchService.shared.updateInterval(TimeInterval(v))
+                    }
+                } header: {
+                    Text("后台与通知")
+                } footer: {
+                    Text("后台保活：退到后台时播放静音音频防止被系统挂起（需保持任务通知开启），任务完成可即时推送；关闭更省电，但通知可能延迟。轮询间隔越大越省电，通知也越慢（3–60 秒）。")
+                }
+
                 // MARK: 任务通知会话（本地）
                 Section {
-                    Button { showTaskChat = true } label: {
+                    NavigationLink {
+                        TaskChatView()
+                    } label: {
                         conversationRow(
                             icon: "bell.badge.fill",
                             iconColor: qlBrandGreen,
@@ -22,7 +50,6 @@ struct NotificationCenterView: View {
                             placeholder: "暂无任务通知"
                         )
                     }
-                    .buttonStyle(.plain)
                 } header: {
                     Text("本机通知")
                 } footer: {
@@ -40,8 +67,6 @@ struct NotificationCenterView: View {
                     .disabled(notify.unreadTotal == 0)
                 }
             }
-            .sheet(isPresented: $showTaskChat) {
-                TaskChatView()
             }
         }
     }
@@ -109,67 +134,63 @@ struct NotificationCenterView: View {
 }
 
 /// 任务通知会话：气泡消息列表，进入即标记已读。
+/// 任务通知聊天界面（类微信聊天框）：由通知栏「任务通知」push 进入，
+/// 不再用 sheet 弹窗；返回按钮由外层 NavigationStack 提供。
 struct TaskChatView: View {
     @EnvironmentObject var notify: AppNotifyManager
-    @Environment(\.dismiss) private var dismiss
 
     private var items: [AppNotifyManager.AppMessage] {
         notify.messages.filter { $0.source == "task" }
     }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if items.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "bell.slash")
-                            .font(.largeTitle)
-                            .foregroundStyle(.tertiary)
-                        Text("暂无任务通知")
-                            .foregroundStyle(.secondary)
-                        Text("任务开始 / 执行完成时会自动推送并留存到这里")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    List {
-                        ForEach(items) { msg in
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(msg.title)
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                                Text(msg.body)
-                                    .font(.subheadline)
-                                Text(NotificationCenterView.timeText(msg.date))
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(.secondarySystemGroupedBackground),
-                                        in: RoundedRectangle(cornerRadius: 12))
-                            .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
+        Group {
+            if items.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "bell.slash")
+                        .font(.largeTitle)
+                        .foregroundStyle(.tertiary)
+                    Text("暂无任务通知")
+                        .foregroundStyle(.secondary)
+                    Text("任务开始 / 执行完成时会自动推送并留存到这里")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(items) { msg in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(msg.title)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(msg.body)
+                                .font(.subheadline)
+                            Text(NotificationCenterView.timeText(msg.date))
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
                         }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(.secondarySystemGroupedBackground),
+                                    in: RoundedRectangle(cornerRadius: 12))
+                        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                     }
-                    .listStyle(.plain)
                 }
+                .listStyle(.plain)
             }
-            .navigationTitle("任务通知")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("完成") { dismiss() }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("清空") { notify.clearMessages(source: "task") }
-                        .disabled(items.isEmpty)
-                }
-            }
-            .onAppear { notify.markRead(source: "task") }
         }
+        .navigationTitle("任务通知")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("清空") { notify.clearMessages(source: "task") }
+                    .disabled(items.isEmpty)
+            }
+        }
+        .onAppear { notify.markRead(source: "task") }
     }
 }
 

@@ -8,7 +8,8 @@ import AVFoundation
 /// （运行时生成，不打到 IPA 里），不影响用户听其它 App 的声音
 /// （`.mixWithOthers`）。
 ///
-/// 仅在「本地通知总开关」开启且正在监听任务时启动，避免无谓耗电。
+/// 仅在「本地通知总开关」开启、正在监听任务、且用户没关保活开关时启动，
+/// 避免无谓耗电。开关可在通知栏顶部「后台保活」随时修改。
 @MainActor
 final class BackgroundKeeper {
     static let shared = BackgroundKeeper()
@@ -18,9 +19,23 @@ final class BackgroundKeeper {
     /// 是否正在保活（供设置页展示状态）。
     private(set) var isActive = false
 
+    /// 保活开关 key（通知栏顶部设置，默认开）。
+    private static let enabledKey = "qlpro_keepalive"
+
+    /// 用户是否允许后台保活（关闭后仅前台轮询 + BGTask 兜底，更省电）。
+    static var isEnabled: Bool {
+        UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true
+    }
+
     private init() {}
 
     // MARK: - 启停
+
+    /// 设置保活开关（通知栏顶部开关调用，立即生效并持久化）。
+    func setEnabled(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: Self.enabledKey)
+        if on { start() } else { stop() }
+    }
 
     func start() {
         guard !isActive else { return }
