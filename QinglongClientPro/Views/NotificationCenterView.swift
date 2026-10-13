@@ -254,7 +254,7 @@ struct ChannelDetailSheet: View {
     let source: String
 
     @State private var title = "青龙客户端 Pro"
-    @State private var body = ""
+    @State private var messageText = ""
     @State private var sending = false
     @State private var resultText: String?
 
@@ -280,7 +280,7 @@ struct ChannelDetailSheet: View {
                 if isActiveChannel {
                     Section {
                         TextField("标题", text: $title)
-                        TextField("通知内容", text: $body)
+                        TextField("通知内容", text: $messageText)
                         Button {
                             Task { await send() }
                         } label: {
@@ -290,7 +290,7 @@ struct ChannelDetailSheet: View {
                                 Label("发送到「\(channel.label)」", systemImage: "paperplane.fill")
                             }
                         }
-                        .disabled(body.isEmpty || session.isBusy)
+                        .disabled(messageText.isEmpty || session.isBusy)
                         if let r = resultText {
                             Text(r)
                                 .font(.caption)
@@ -338,11 +338,11 @@ struct ChannelDetailSheet: View {
     private func send() async {
         sending = true
         defer { sending = false }
-        let ok = await session.sendSystemNotify(title: title, content: body)
+        let ok = await session.sendSystemNotify(title: title, content: messageText)
         if ok {
-            notify.record(title: title, body: body, source: source)
+            notify.record(title: title, body: messageText, source: source)
             resultText = "已发送 ✓"
-            body = ""
+            messageText = ""
         } else {
             resultText = session.lastError ?? "发送失败"
         }

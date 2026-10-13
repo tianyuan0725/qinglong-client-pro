@@ -19,7 +19,7 @@ struct PanelTabView: View {
             } else if session.isAuthenticated {
                 TabView {
                     NotificationCenterView()
-                        .badge(notify.unreadCount > 0 ? notify.unreadCount : nil)
+                        .badge(notify.unreadCount > 0 ? Optional(notify.unreadCount) : nil)
                         .navigationBarTitleDisplayMode(.inline)
                         .tabItem { Label("通知", systemImage: "bell") }
                     DashboardView()
