@@ -5,7 +5,6 @@ struct ConnectionListView: View {
     @EnvironmentObject var appState: AppState
     /// 以「账号排序」模式打开时自动进入编辑态（拖动排序）。
     var startInSortMode: Bool = false
-    @State private var showEditor = false
     @State private var editing: Connection?
     @State private var editMode: EditMode = .inactive
     @Environment(\.dismiss) private var dismiss
@@ -47,7 +46,6 @@ struct ConnectionListView: View {
                         .swipeActions {
                             Button {
                                 editing = conn
-                                showEditor = true
                             } label: { Label("编辑", systemImage: "pencil") }
                                 .tint(.blue)
                             Button(role: .destructive) {
@@ -104,14 +102,14 @@ struct ConnectionListView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        editing = nil
-                        showEditor = true
+                        editing = Connection(id: UUID().uuidString, name: "", baseURLString: "",
+                            authType: .user, username: "", password: "", clientID: "", clientSecret: "")
                     } label: { Image(systemName: "plus") }
                 }
             }
-            .sheet(isPresented: $showEditor) {
-                ConnectionEditorView(editing: editing)
-                    .environmentObject(store)
+.sheet(item: $editing) { conn in
+    ConnectionEditorView(editing: conn)
+        .environmentObject(store)
             }
         }
     }
@@ -120,16 +118,37 @@ struct ConnectionListView: View {
 struct ConnectionEditorView: View {
     @EnvironmentObject var store: ConnectionStore
     @Environment(\.dismiss) var dismiss
-    var editing: Connection?
+    /// 被编辑的面板；由 .sheet(item:) 驱动，恒非 nil。
+    /// 新建时上层传入空 Connection（新 UUID），保存即新增；
+    /// 编辑时传入列表中已有的 Connection，保存按同 id 覆盖更新。
+    var editing: Connection
 
-    @State private var name = ""
-    @State private var baseURLString = ""
-    @State private var authType: AuthType = .user
-    @State private var username = ""
-    @State private var password = ""
-    @State private var clientID = ""
-    @State private var clientSecret = ""
+    @State private var name: String
+    @State private var baseURLString: String
+    @State private var authType: AuthType
+    @State private var username: String
+    @State private var password: String
+    @State private var clientID: String
+    @State private var clientSecret: String
     @State private var showError: String?
+
+    /// 用传入连接预填各字段（init 赋值，杜绝 sheet 时序问题
+    /// 导致「编辑打开却是空的、保存变成新增账号」）。
+    init(editing: Connection) {
+        self.editing = editing
+        _name = State(initialValue: editing.name)
+        _baseURLString = State(initialValue: editing.baseURLString)
+        _authType = State(initialValue: editing.authType)
+        _username = State(initialValue: editing.username)
+        _password = State(initialValue: editing.password)
+        _clientID = State(initialValue: editing.clientID)
+        _clientSecret = State(initialValue: editing.clientSecret)
+    }
+
+    /// 是否编辑已有面板（决定标题；保存始终按 id upsert）。
+    private var isExisting: Bool {
+        store.connections.contains { $0.id == editing.id }
+    }
 
     var body: some View {
         NavigationStack {
@@ -146,7 +165,6 @@ struct ConnectionEditorView: View {
                         ForEach(AuthType.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
-
                     if authType == .user {
                         TextField("用户名", text: $username)
                             .textInputAutocapitalization(.never)
@@ -160,12 +178,12 @@ struct ConnectionEditorView: View {
                     }
                     Text(authType == .user
                          ? "使用面板后台账号密码登录 (POST /api/user/login)。"
-                         : "登录面板后到「系统设置 → 应用设置」添加应用，获取 Client ID / Secret (POST /api/apps/token)。开放 API 需在应用中授予相应权限。")
+                         : "登录面板到「系统设置 → 应用设置」添加应用，获取 Client ID / Secret (POST /api/apps/token)。开放 API 需在应用中授予相应权限。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle(editing == nil ? "新增面板" : "编辑面板")
+            .navigationTitle(isExisting ? "编辑面板" : "新增面板")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
@@ -178,18 +196,6 @@ struct ConnectionEditorView: View {
                 Button("确定") { showError = nil }
             } message: { Text(showError ?? "") }
         }
-        .onAppear(perform: loadIfEditing)
-    }
-
-    private func loadIfEditing() {
-        guard let c = editing else { return }
-        name = c.name
-        baseURLString = c.baseURLString
-        authType = c.authType
-        username = c.username
-        password = c.password
-        clientID = c.clientID
-        clientSecret = c.clientSecret
     }
 
     private func save() {
@@ -198,8 +204,9 @@ struct ConnectionEditorView: View {
               (URL(string: baseURLString) != nil || baseURLString.contains(".") || baseURLString.lowercased().contains("localhost")) else {
             showError = "请填写有效的面板地址"; return
         }
+        // 同一 id 覆盖保存（Keychain upsert）：编辑不产生重复账号。
         let conn = Connection(
-            id: editing?.id ?? UUID().uuidString,
+            id: editing.id,
             name: name,
             baseURLString: baseURLString,
             authType: authType,

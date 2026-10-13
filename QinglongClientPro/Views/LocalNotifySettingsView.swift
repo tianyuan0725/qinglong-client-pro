@@ -13,16 +13,16 @@ struct LocalNotifySettingsView: View {
             Section {
                 Toggle(isOn: $notify.enabled) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("任务运行本地通知")
-                        Text(notify.enabled ? "开启后，任务开始/完成时弹出系统通知" : "已关闭，不会发送任何本地通知")
+                        Text("推送通知")
+                        Text(notify.enabled ? "开启后，任务开始/完成时推送系统通知" : "已关闭，不接受任何任务通知")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
             } header: {
-                Text("总开关")
+                Text("推送通知总开关")
             } footer: {
-                Text("本地通知即苹果系统弹窗（与微信收到消息的横幅效果相同），App 在前台也会弹出。")
+                Text("关闭后完全不接受任何任务通知（也不再后台保活与轮询，最省电）。本地通知即苹果系统弹窗（与微信收到消息的横幅效果相同），App 在前台也会弹出。")
             }
 
             if notify.enabled {

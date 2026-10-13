@@ -16,10 +16,19 @@ struct NotificationCenterView: View {
             List {
                 // MARK: 后台保活与轮询（省电设置）
                 Section {
+                    Toggle(isOn: $notify.enabled) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("推送通知")
+                            Text(notify.enabled ? "开启后，任务运行/完成时推送系统通知" : "已关闭，不接受任何任务通知")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     Toggle("后台保活", isOn: $keepAliveOn)
                         .onChange(of: keepAliveOn) { on in
                             BackgroundKeeper.shared.setEnabled(on)
                         }
+                        .disabled(!notify.enabled)
                     Stepper(value: $pollInterval, in: 3...60, step: 1) {
                         HStack {
                             Text("轮询间隔")
@@ -31,10 +40,11 @@ struct NotificationCenterView: View {
                     .onChange(of: pollInterval) { v in
                         CronWatchService.shared.updateInterval(TimeInterval(v))
                     }
+                    .disabled(!notify.enabled)
                 } header: {
-                    Text("后台与通知")
+                    Text("推送与省电")
                 } footer: {
-                    Text("后台保活：退到后台时播放静音音频防止被系统挂起（需保持任务通知开启），任务完成可即时推送；关闭更省电，但通知可能延迟。轮询间隔越大越省电，通知也越慢（3–60 秒）。")
+                    Text("推送通知总开关：关闭后完全不接受任何任务通知（也不再后台保活，最省电）。后台保活：退到后台时播放静音音频防止被系统挂起，任务完成可即时推送；关闭更省电，但通知可能延迟。轮询间隔越大越省电，通知也越慢（3–60 秒）。")
                 }
 
                 // MARK: 任务通知会话（本地）

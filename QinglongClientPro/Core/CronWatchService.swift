@@ -52,10 +52,9 @@ final class CronWatchService: ObservableObject {
     /// 后台刷新任务标识（需同时在 Info.plist BGTaskSchedulerPermittedIdentifiers 登记）。
     private let bgTaskIdentifier = "com.qlpro.cronrefresh"
     /// 快照持久化 key。
-    private let snapshotKey = "qlpro_cron_watch_snapshot"
-    /// 离线补通知的新鲜度阈值：超过该时长不再补发（避免几天后启动补一堆旧通知）。
-    private let offlineReplayMaxAge: TimeInterval = 6 * 3600
-
+    /// 快照持久化 key（按连接 id 隔离：不同面板/账号互不干扰，
+    /// 避免新登录账号被旧账号的快照误判为「离线期间新完成」而补发刷屏）。
+    private var snapshotKey = "qlpro_cron_watch_snapshot"
     private init() {}
 
     // MARK: - 启停
@@ -63,6 +62,7 @@ final class CronWatchService: ObservableObject {
     /// 开始全局监听（面板会话建立后调用，重复调用安全）。
     func start(session: PanelSession) {
         self.session = session
+        snapshotKey = "qlpro_cron_watch_snapshot_\(session.connection.id)"
         loadSnapshot()
         guard timer == nil else { return }
         isWatching = true
@@ -110,8 +110,14 @@ final class CronWatchService: ObservableObject {
 
     private func poll() async {
         guard let session, session.isAuthenticated else { return }
-        // 通知/保活开关变化时自动同步（开着才值得后台耗电）
-        if AppNotifyManager.shared.enabled && BackgroundKeeper.isEnabled {
+        // 推送通知总开关关闭：完全不接受通知——停保活并跳过本轮（省电）。
+        // 重新开启后下轮自动恢复。
+        guard AppNotifyManager.shared.enabled else {
+            BackgroundKeeper.shared.stop()
+            return
+        }
+        // 通知开着、保活开关变化时自动同步（开着才值得后台耗电）
+        if BackgroundKeeper.isEnabled {
             BackgroundKeeper.shared.start()
         } else {
             BackgroundKeeper.shared.stop()
@@ -134,7 +140,7 @@ final class CronWatchService: ObservableObject {
         let current = Dictionary(uniqueKeysWithValues: session.crons.map { ($0.id, $0.isRunning) })
 
         if !baselined {
-            establishBaseline(session: session, byId: byId, current: current)
+            establishBaseline(byId: byId, current: current)
             return
         }
 
@@ -175,25 +181,11 @@ final class CronWatchService: ObservableObject {
         }
     }
 
-    /// 建立基线：首轮成功加载后记录状态；同时补发「离线期间完成」的通知。
-    private func establishBaseline(session: PanelSession, byId: [String: CronTask], current: [String: Bool]) {
-        // 补发：上次快照之后又有新执行完成的任务（App 关闭/被杀期间跑完的）。
-        // 注意：先取本地常量快照——下面会覆盖属性，而补发在 Task 里异步执行。
-        let previousExec = lastNotifiedExec
-        let savedAt = snapshotSavedAt
-        if let savedAt, Date().timeIntervalSince(savedAt) < offlineReplayMaxAge {
-            Task { @MainActor in
-                for (id, cron) in byId where !cron.isRunning {
-                    let execTime = cron.lastExecutionTime?.value ?? 0
-                    let known = previousExec[id]
-                    // 有新执行（或首次记录到该任务有执行）且没在跑 → 离线期间完成
-                    if execTime > 0, (known == nil || execTime > known!) {
-                        let detail = await finishDetail(session: session, cron: cron)
-                        AppNotifyManager.shared.notifyCronFinished(name: cron.name, detail: detail)
-                    }
-                }
-            }
-        }
+    /// 建立基线：首轮成功加载后只记录状态，不发任何通知。
+    /// v2.3.4：取消「离线期间完成任务补发」——用户明确「只接受最新的运行
+    /// 成功通知，已完成的就不要推送了」。首轮（含新登录账号、快照丢失）
+    /// 一律只建基线，历史已完成任务不再打扰。
+    private func establishBaseline(byId: [String: CronTask], current: [String: Bool]) {
         // 基线：记录当前执行时间戳，之后只通知「新发生的执行」
         for (id, cron) in byId {
             lastNotifiedExec[id] = cron.lastExecutionTime?.value ?? 0
@@ -211,7 +203,9 @@ final class CronWatchService: ObservableObject {
         let log = (try? await session.cronLog(id: cron.id)) ?? ""
         let parsed = Self.parseCronLog(log)
         var lines: [String] = []
-        if parsed.failed {
+        if parsed.stopped && !parsed.failed {
+            lines.append("🛑 已停止")
+        } else if parsed.failed {
             lines.append("❌ \(parsed.errorTitle.isEmpty ? "任务执行异常" : parsed.errorTitle)")
             if !parsed.errorDetail.isEmpty {
                 lines.append("💬 错误信息: \(parsed.errorDetail)")
@@ -241,6 +235,8 @@ final class CronWatchService: ObservableObject {
     /// 青龙 cron 日志解析结果。
     private struct LogParseResult {
         var failed = false
+        /// 手动停止（## 已停止 🛑）：不算失败，通知里单独标示。
+        var stopped = false
         var errorTitle = ""
         var errorDetail = ""
         /// 结论行里的耗时（秒），如 `耗时 8 秒`。
@@ -263,7 +259,11 @@ final class CronWatchService: ObservableObject {
         // 结论行（从后往前）：## 失败 ❌(退出码 1)... 2026-10-13 22:05:23  耗时 8 秒
         var conclusion: String?
         for line in lines.reversed() {
-            if line.contains("## 失败") || line.contains("## 执行成功") || line.contains("## 成功") {
+            // 兼容各版本青龙结论行：新版「## 完成 ✅」/「## 已停止 🛑」，
+            // 旧版「## 执行成功」/「## 成功」/「## 失败 ❌(退出码 N)」。
+            if line.contains("## 完成") || line.contains("## 失败")
+                || line.contains("## 已停止") || line.contains("## 执行成功")
+                || line.contains("## 成功") {
                 conclusion = line
                 break
             }
@@ -271,6 +271,7 @@ final class CronWatchService: ObservableObject {
         // 状态：结论行优先；没有结论行再按 ❌ 兜底
         if let conclusion {
             result.failed = conclusion.contains("## 失败") || conclusion.contains("❌")
+            result.stopped = conclusion.contains("## 已停止") || conclusion.contains("🛑")
             if let m = conclusion.firstMatch(of: Self.timeRegex) {
                 result.finishedAt = String(m.0)
             }
