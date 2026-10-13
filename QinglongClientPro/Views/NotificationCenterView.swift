@@ -88,7 +88,7 @@ struct NotificationCenterView: View {
                     Button { notify.markAllRead() } label: {
                         Image(systemName: "checkmark.circle")
                     }
-                    .disabled(notify.unreadCount == 0)
+                    .disabled(notify.unreadTotal == 0)
                 }
             }
             .task {

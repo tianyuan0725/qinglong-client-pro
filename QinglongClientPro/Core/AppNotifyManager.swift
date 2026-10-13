@@ -69,7 +69,7 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
     }
 
     /// 未读消息总数。
-    var unreadCount: Int { messages.filter { !$0.read }.count }
+    var unreadTotal: Int { messages.filter { !$0.read }.count }
 
     /// 某会话的未读数。
     func unreadCount(source: String) -> Int { messages.filter { $0.source == source && !$0.read }.count }
