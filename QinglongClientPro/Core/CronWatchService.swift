@@ -68,7 +68,7 @@ final class CronWatchService: ObservableObject {
         isWatching = true
         baselined = false
         // 本地通知开着、且用户没关保活开关，才退后台保活（省电优先）
-        if AppNotifyManager.shared.enabled && BackgroundKeeper.shared.isEnabled {
+        if AppNotifyManager.shared.enabled && BackgroundKeeper.isEnabled {
             BackgroundKeeper.shared.start()
         }
         scheduleBackgroundRefresh()
@@ -111,7 +111,7 @@ final class CronWatchService: ObservableObject {
     private func poll() async {
         guard let session, session.isAuthenticated else { return }
         // 通知/保活开关变化时自动同步（开着才值得后台耗电）
-        if AppNotifyManager.shared.enabled && BackgroundKeeper.shared.isEnabled {
+        if AppNotifyManager.shared.enabled && BackgroundKeeper.isEnabled {
             BackgroundKeeper.shared.start()
         } else {
             BackgroundKeeper.shared.stop()

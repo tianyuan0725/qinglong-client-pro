@@ -67,7 +67,6 @@ struct NotificationCenterView: View {
                     .disabled(notify.unreadTotal == 0)
                 }
             }
-            }
         }
     }
 
@@ -133,7 +132,6 @@ struct NotificationCenterView: View {
     }
 }
 
-/// 任务通知会话：气泡消息列表，进入即标记已读。
 /// 任务通知聊天界面（类微信聊天框）：由通知栏「任务通知」push 进入，
 /// 不再用 sheet 弹窗；返回按钮由外层 NavigationStack 提供。
 struct TaskChatView: View {
