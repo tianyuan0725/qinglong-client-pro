@@ -19,7 +19,7 @@ struct PanelTabView: View {
             } else if session.isAuthenticated {
                 TabView {
                     NotificationCenterView()
-                        .badge(notifyBadge)
+                        .badge(notify.unreadTotal)
                         .navigationBarTitleDisplayMode(.inline)
                         .tabItem { Label("通知", systemImage: "bell") }
                     DashboardView()
@@ -58,11 +58,6 @@ struct PanelTabView: View {
                 await session.login()
             }
         }
-    }
-
-    /// 通知 Tab 的未读徽标（0 时不显示）。
-    private var notifyBadge: Int? {
-        notify.unreadTotal > 0 ? notify.unreadTotal : nil
     }
 
     /// 冷启动用保存的 token 恢复会话时的占位视图。
