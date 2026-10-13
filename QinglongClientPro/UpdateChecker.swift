@@ -64,7 +64,7 @@ final class UpdateChecker: ObservableObject {
         // defer 保证无论成功/失败/超时，checking 都会复位，绝不卡「正在更新…」。
         defer { checking = false }
         do {
-            let release = try await withTotalTimeout(seconds: 40) { try await fetchLatestRelease() }
+            let release = try await withTotalTimeout(seconds: 40) { try await self.fetchLatestRelease() }
             let remote = Self.normalizeVersion(release.tagName)
             latestVersion = remote
             releaseNotes = release.body
@@ -130,7 +130,7 @@ final class UpdateChecker: ObservableObject {
                 try await Task.sleep(nanoseconds: seconds * 1_000_000_000)
                 throw URLError(.timedOut)
             }
-            defer { group.cancelAllTasks() }
+            defer { group.cancelAll() }
             guard let result = try await group.next() else { throw URLError(.timedOut) }
             return result
         }

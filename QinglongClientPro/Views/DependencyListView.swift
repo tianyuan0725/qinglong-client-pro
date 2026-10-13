@@ -82,8 +82,8 @@ struct DependencyListView: View {
         session.dependencies.filter { dep in
             if typeSegment >= 0, dep.type != typeSegment { return false }
             if !statusSegment.isEmpty, String(dep.status) != statusSegment { return false }
-            if !depSearch.isEmpty {
-                let q = depSearch.lowercased()
+            if !session.depSearch.isEmpty {
+                let q = session.depSearch.lowercased()
                 guard dep.name.lowercased().contains(q) || dep.remark.lowercased().contains(q) else { return false }
             }
             return true
@@ -99,15 +99,10 @@ struct DependencyListView: View {
                 Text("Linux").tag(2)
             }
             .pickerStyle(.segmented)
-            .onChange(of: typeSegment) { newVal in
-                session.depTypeFilter = newVal < 0 ? nil : newVal
-                Task { await session.loadDependencies() }
-            }
 
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("搜索依赖名", text: $session.depSearch)
-                    .onSubmit { Task { await session.loadDependencies() } }
                 Picker("状态", selection: $statusSegment) {
                     Text("全部").tag("")
                     Text("已安装").tag("1")
@@ -117,10 +112,6 @@ struct DependencyListView: View {
                 }
                 .pickerStyle(.menu)
                 .frame(width: 110)
-                .onChange(of: statusSegment) { newVal in
-                    session.depStatusFilter = newVal
-                    Task { await session.loadDependencies() }
-                }
             }
         }
         .padding(.horizontal, 12)
