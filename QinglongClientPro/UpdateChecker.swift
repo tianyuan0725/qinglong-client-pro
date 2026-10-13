@@ -66,7 +66,7 @@ final class UpdateChecker: ObservableObject {
         // defer 保证无论成功/失败/超时，checking 都会复位，绝不卡「正在更新…」。
         defer { checking = false }
         do {
-            let release = try await withTotalTimeout(seconds: 45) { try await fetchLatestRelease() }
+            let release = try await withTotalTimeout(seconds: 45) { try await self.fetchLatestRelease() }
             let remote = Self.normalizeVersion(release.tagName)
             latestVersion = remote
             releaseNotes = release.body
