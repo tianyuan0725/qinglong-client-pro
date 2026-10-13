@@ -9,10 +9,10 @@ struct DashboardView: View {
     var body: some View {
         NavigationStack {
             List {
-                // MARK: 系统状态（紧凑 2 列网格，大幅降低纵向占用）
+                // MARK: 系统状态（紧凑 2 列网格）
                 Section {
                     if let sys = session.dashboardSystem {
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                             statusCell("memorychip", "内存使用率", sys.memoryPercentText)
                             statusCell("internaldrive", "内存", sys.memoryBytesText)
                             statusCell("clock", "系统运行", sys.uptimeText)
@@ -20,7 +20,7 @@ struct DashboardView: View {
                             statusCell("waveform.path.ecg", "负载(1m)", sys.loadText)
                             statusCell("cpu", "CPU", sys.cpuText)
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 2)
                         .listRowBackground(Color.clear)
                     } else if session.systemInfo != nil {
                         Text("当前面板版本较低（低于 v2.23），暂不支持读取系统资源")
@@ -31,11 +31,12 @@ struct DashboardView: View {
                     }
                 } header: {
                     Label("系统状态", systemImage: "gauge.medium")
+                        .font(.headline)
                 }
 
                 // MARK: 统计概览
                 Section {
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                         statTile("定时任务", session.cronCount, "list.bullet.rectangle", .blue)
                         statTile("运行中", session.runningCount, "arrow.triangle.2.circlepath", .green)
                         statTile("环境变量", session.envCount, "key", .purple)
@@ -47,10 +48,11 @@ struct DashboardView: View {
                         statTextTile("平均耗时", session.dashboardOverview?.avgTimeText ?? "—", "clock", .orange)
                         statTile("已禁用任务", session.dashboardOverview?.disabled ?? 0, "stop", .gray)
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 2)
                     .listRowBackground(Color.clear)
                 } header: {
                     Label("概览", systemImage: "chart.pie")
+                        .font(.headline)
                 }
 
                 // MARK: 运行中的任务
@@ -79,6 +81,7 @@ struct DashboardView: View {
                     }
                 } header: {
                     Label("运行中的任务", systemImage: "play.circle")
+                        .font(.headline)
                 }
 
                 // MARK: 最近执行
@@ -102,6 +105,7 @@ struct DashboardView: View {
                     }
                 } header: {
                     Label("最近执行", systemImage: "clock")
+                        .font(.headline)
                 }
 
                 // MARK: 面板信息
@@ -119,6 +123,7 @@ struct DashboardView: View {
                     }
                 } header: {
                     Label("面板信息", systemImage: "server.rack")
+                        .font(.headline)
                 }
             }
             .listStyle(.insetGrouped)
@@ -188,13 +193,13 @@ struct DashboardView: View {
                         .foregroundStyle(color)
                     Spacer()
                     Text("\(value)")
-                        .font(.title3.weight(.semibold).monospacedDigit())
+                        .font(.title2.weight(.semibold).monospacedDigit())
                 }
                 Text(title)
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .padding(10)
+            .padding(9)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
         }
@@ -205,16 +210,16 @@ struct DashboardView: View {
 
     /// 紧凑状态单元：图标 + 标题 + 数值横向排布，用于系统状态的 2 列网格。
     private func statusCell(_ icon: String, _ title: String, _ value: String?) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 5) {
             Image(systemName: icon)
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.secondary)
             Text(title)
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 2)
             Text(value ?? "—")
-                .font(.caption2.monospacedDigit())
+                .font(.footnote.monospacedDigit())
                 .foregroundStyle(value == nil ? .secondary : .primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
@@ -228,13 +233,13 @@ struct DashboardView: View {
                     .foregroundStyle(color)
                 Spacer()
                 Text("\(value)")
-                    .font(.title3.weight(.semibold).monospacedDigit())
+                    .font(.title2.weight(.semibold).monospacedDigit())
             }
             Text(title)
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .padding(10)
+        .padding(9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
     }
@@ -247,15 +252,15 @@ struct DashboardView: View {
                     .foregroundStyle(color)
                 Spacer()
                 Text(value)
-                    .font(.title3.weight(.semibold).monospacedDigit())
+                    .font(.title2.weight(.semibold).monospacedDigit())
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
             Text(title)
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .padding(10)
+        .padding(9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
     }

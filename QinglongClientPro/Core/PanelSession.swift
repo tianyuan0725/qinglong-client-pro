@@ -1042,4 +1042,20 @@ final class PanelSession: ObservableObject {
         await loadConfigFiles()
         return count
     }
+
+    // MARK: - 备份文件管理（本机）
+
+    /// 列出本机文档目录下的全部备份文件（.json / .zip），按文件名倒序（最新在前）。
+    func listBackupFiles() -> [URL] {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let files = (try? FileManager.default.contentsOfDirectory(at: docs, includingPropertiesForKeys: nil)) ?? []
+        return files
+            .filter { $0.pathExtension == "json" || $0.pathExtension == "zip" }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+    }
+
+    /// 删除指定备份文件。
+    func deleteBackupFile(_ url: URL) throws {
+        try FileManager.default.removeItem(at: url)
+    }
 }

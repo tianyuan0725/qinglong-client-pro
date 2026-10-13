@@ -412,6 +412,8 @@ struct ThemeSheet: View {
 struct UpdateSheet: View {
     @EnvironmentObject var updater: UpdateChecker
     @Environment(\.dismiss) private var dismiss
+    @State private var downloadedURL: URL?
+    @State private var showShare = false
 
     var body: some View {
         NavigationStack {
@@ -446,8 +448,31 @@ struct UpdateSheet: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         Section {
-                            if let url = updater.releaseURL {
-                                Link(destination: url) {
+                            if updater.downloading {
+                                HStack(spacing: 10) {
+                                    ProgressView()
+                                    Text("正在下载 IPA…")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            } else if let _ = updater.downloadURL {
+                                Button {
+                                    Task {
+                                        if let local = await updater.downloadIPA() {
+                                            downloadedURL = local
+                                            showShare = true
+                                        }
+                                    }
+                                } label: {
+                                    Label("下载 IPA 并更新", systemImage: "arrow.down.circle.fill")
+                                }
+                                if let web = updater.releaseURL {
+                                    Link(destination: web) {
+                                        Label("前往 GitHub 查看", systemImage: "safari")
+                                    }
+                                }
+                            } else if let web = updater.releaseURL {
+                                Link(destination: web) {
                                     Label("前往 GitHub 下载 IPA", systemImage: "arrow.down.circle")
                                 }
                             }
@@ -479,6 +504,9 @@ struct UpdateSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
+            }
+            .sheet(isPresented: $showShare) {
+                if let u = downloadedURL { ShareSheet(items: [u]) }
             }
         }
     }

@@ -7,6 +7,7 @@ struct BackupView: View {
     @State private var showFilePicker = false
     @State private var shareURL: URL?
     @State private var lastBackupURL: URL?
+    @State private var recentBackups: [URL] = []
     @State private var alertTitle = ""
     @State private var alertMessage = ""
     @State private var showAlert = false
@@ -98,29 +99,44 @@ struct BackupView: View {
                 }
             }
 
-            if let url = lastBackupURL {
-                Section("最近备份") {
-                    HStack(spacing: 10) {
-                        Image(systemName: "doc.fill")
-                            .foregroundStyle(qlBrandGreen)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(url.lastPathComponent)
-                                .font(.subheadline)
-                                .lineLimit(1)
-                            Text(url.path)
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
+            Section("备份文件（\(recentBackups.count)）") {
+                if recentBackups.isEmpty {
+                    Text("暂无备份文件，点上方按钮创建。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(recentBackups, id: \.self) { url in
+                        HStack(spacing: 10) {
+                            Image(systemName: url.pathExtension == "zip" ? "doc.zipper" : "doc.fill")
+                                .foregroundStyle(qlBrandGreen)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(url.lastPathComponent)
+                                    .font(.subheadline)
+                                    .lineLimit(1)
+                                Text(url.pathExtension == "zip" ? "面板数据 zip" : "脚本与配置 JSON")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            Button { shareURL = url } label: {
+                                Image(systemName: "square.and.arrow.up")
+                            }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.secondary)
                         }
-                    }
-                    Button { shareURL = url } label: {
-                        Label("分享备份文件", systemImage: "square.and.arrow.up")
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                Task { await deleteBackup(url) }
+                            } label: { Label("删除", systemImage: "trash") }
+                        }
                     }
                 }
             }
         }
         .navigationTitle("文件备份")
         .navigationBarTitleDisplayMode(.inline)
+        .task { loadRecentBackups() }
         .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.json, .plainText]) { result in
             if case .success(let url) = result {
                 let secured = url.startAccessingSecurityScopedResource()
@@ -166,6 +182,7 @@ struct BackupView: View {
             let url = try await session.exportBackup()
             lastBackupURL = url
             shareURL = url
+            loadRecentBackups()
         } catch {
             alertTitle = "备份失败"
             alertMessage = error.localizedDescription
@@ -197,6 +214,7 @@ struct BackupView: View {
             let url = try await session.exportPanelDataZip(types: types)
             lastBackupURL = url
             shareURL = url
+            loadRecentBackups()
         } catch {
             alertTitle = "导出失败"
             alertMessage = error.localizedDescription
@@ -214,6 +232,23 @@ struct BackupView: View {
             showAlert = true
         } catch {
             alertTitle = "恢复失败"
+            alertMessage = error.localizedDescription
+            showAlert = true
+        }
+    }
+
+    // MARK: - 备份文件列表 / 删除
+
+    private func loadRecentBackups() {
+        recentBackups = session.listBackupFiles()
+    }
+
+    private func deleteBackup(_ url: URL) async {
+        do {
+            try session.deleteBackupFile(url)
+            loadRecentBackups()
+        } catch {
+            alertTitle = "删除失败"
             alertMessage = error.localizedDescription
             showAlert = true
         }
@@ -280,30 +315,35 @@ struct ICloudBackupView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(localFiles, id: \.self) { url in
-                            HStack(spacing: 10) {
-                                Image(systemName: url.pathExtension == "zip" ? "doc.zipper" : "doc.text")
-                                    .foregroundStyle(qlBrandGreen)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(url.lastPathComponent)
-                                        .font(.subheadline)
-                                        .lineLimit(1)
-                                    Text(url.pathExtension == "zip" ? "面板数据 zip" : "脚本与配置 JSON")
-                                        .font(.caption2)
-                                        .foregroundStyle(.tertiary)
-                                        .lineLimit(1)
-                                }
-                                Spacer()
-                                Button {
-                                    shareURL = url
-                                } label: {
-                                    Label("存储到 iCloud", systemImage: "square.and.arrow.up")
-                                        .font(.caption)
-                                }
-                                .buttonStyle(.bordered)
-                                .tint(qlBrandGreen)
-                            }
+                ForEach(localFiles, id: \.self) { url in
+                    HStack(spacing: 10) {
+                        Image(systemName: url.pathExtension == "zip" ? "doc.zipper" : "doc.text")
+                            .foregroundStyle(qlBrandGreen)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(url.lastPathComponent)
+                                .font(.subheadline)
+                                .lineLimit(1)
+                            Text(url.pathExtension == "zip" ? "面板数据 zip" : "脚本与配置 JSON")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
                         }
+                        Spacer()
+                        Button {
+                            shareURL = url
+                        } label: {
+                            Label("存储到 iCloud", systemImage: "square.and.arrow.up")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(qlBrandGreen)
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            Task { await deleteLocalFile(url) }
+                        } label: { Label("删除", systemImage: "trash") }
+                    }
+                }
                     }
                 }
             }
@@ -337,6 +377,17 @@ struct ICloudBackupView: View {
         localFiles = files
             .filter { $0.pathExtension == "json" || $0.pathExtension == "zip" }
             .sorted { $0.lastPathComponent > $1.lastPathComponent }
+    }
+
+    private func deleteLocalFile(_ url: URL) async {
+        do {
+            try FileManager.default.removeItem(at: url)
+            loadFiles()
+        } catch {
+            alertTitle = "删除失败"
+            alertMessage = error.localizedDescription
+            showAlert = true
+        }
     }
 
     private func restoreFromZip(url: URL) async {

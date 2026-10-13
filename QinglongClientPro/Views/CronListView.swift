@@ -34,11 +34,8 @@ struct CronListView: View {
                 Section {
                     summaryCard
                         .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
-                }
-                .listRowSeparator(.hidden)
-
-                Section {
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
                     Picker("状态", selection: $filter) {
                         Text("全部").tag("all")
                         Text("运行中").tag("running")
@@ -46,7 +43,7 @@ struct CronListView: View {
                         Text("已禁用").tag("disabled")
                     }
                     .pickerStyle(.segmented)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                    .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 6, trailing: 12))
                 }
                 .listRowSeparator(.hidden)
 
@@ -134,10 +131,10 @@ struct CronListView: View {
     // MARK: - 系统概览卡片
 
     private var summaryCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text("青龙 v\(session.panelInfo?.version ?? session.systemInfo?.version ?? "—")")
-                    .font(.caption.weight(.semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(qlBrandGreen)
                 Spacer()
                 HStack(spacing: 14) {
@@ -158,8 +155,8 @@ struct CronListView: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+        .padding(.vertical, 7)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func statItem(_ title: String, _ value: Int, _ color: Color) -> some View {

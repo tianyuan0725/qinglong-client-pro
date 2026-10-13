@@ -35,6 +35,12 @@ final class UpdateChecker: ObservableObject {
     @Published var releaseNotes: String?
     /// Release 页面链接。
     @Published var releaseURL: URL?
+    /// IPA 直接下载地址（从 Release assets 中解析出 .ipa 文件）。
+    @Published var downloadURL: URL?
+    /// 是否正在下载 IPA。
+    @Published var downloading = false
+    /// 下载失败时的错误信息。
+    @Published var downloadError: String?
     /// 最近一次检查的错误信息（成功时为 nil）。已本地化为中文。
     @Published var error: String?
 
@@ -69,6 +75,11 @@ final class UpdateChecker: ObservableObject {
             latestVersion = remote
             releaseNotes = release.body
             releaseURL = URL(string: release.htmlURL)
+            if let asset = release.assets.first(where: { $0.name.hasSuffix(".ipa") }) {
+                downloadURL = URL(string: asset.browserDownloadURL)
+            } else {
+                downloadURL = nil
+            }
             hasUpdate = Self.compare(remote, currentVersion) == .orderedDescending
         } catch {
             // 网络失败/接口异常：保留上一次的判定结果，只记录友好的中文错误，
@@ -83,11 +94,22 @@ final class UpdateChecker: ObservableObject {
         var tagName: String
         var body: String?
         var htmlURL: String
+        var assets: [Asset] = []
 
         enum CodingKeys: String, CodingKey {
             case tagName = "tag_name"
             case body
             case htmlURL = "html_url"
+            case assets
+        }
+
+        struct Asset: Decodable {
+            var name: String
+            var browserDownloadURL: String
+            enum CodingKeys: String, CodingKey {
+                case name
+                case browserDownloadURL = "browser_download_url"
+            }
         }
     }
 
@@ -120,6 +142,32 @@ final class UpdateChecker: ObservableObject {
             throw URLError(.badServerResponse)
         }
         return try JSONDecoder().decode(ReleasePayload.self, from: data)
+    }
+
+    /// 直接下载最新版 IPA 到本机临时目录，返回本地文件 URL（供分享面板交给 TrollStore 安装）。
+    /// 失败返回 nil 并记录 `downloadError`。
+    func downloadIPA() async -> URL? {
+        guard let url = downloadURL else {
+            downloadError = "未找到 IPA 下载地址"
+            return nil
+        }
+        downloading = true
+        downloadError = nil
+        defer { downloading = false }
+        do {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 120
+            req.setValue("QinglongClientPro-iOS", forHTTPHeaderField: "User-Agent")
+            let (tmp, _) = try await session.download(for: req)
+            let dest = FileManager.default.temporaryDirectory
+                .appendingPathComponent(url.lastPathComponent)
+            try? FileManager.default.removeItem(at: dest)
+            try FileManager.default.moveItem(at: tmp, to: dest)
+            return dest
+        } catch {
+            downloadError = Self.friendlyError(error)
+            return nil
+        }
     }
 
     /// 对整个检查加总超时：网络调用与「到点抛超时」赛跑，先完成者胜出。

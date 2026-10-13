@@ -8,6 +8,7 @@ struct DependencyListView: View {
     @State private var logDep: Dependency? = nil
     @State private var typeSegment = -1        // -1 全部 / 0 Node / 1 Python / 2 Linux
     @State private var statusSegment = ""      // "" 全部 / 状态数字
+    @State private var loading = true          // 首次加载 / 刷新中
 
     var body: some View {
             VStack(spacing: 0) {
@@ -43,6 +44,34 @@ struct DependencyListView: View {
                     }
                 }
                 .listStyle(.insetGrouped)
+                .overlay {
+                    if loading {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                            Text("加载依赖中…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color(.systemGroupedBackground))
+                    } else if session.dependencies.isEmpty {
+                        VStack(spacing: 12) {
+                            Image(systemName: "shippingbox")
+                                .font(.largeTitle)
+                                .foregroundStyle(.tertiary)
+                            Text("暂无依赖插件")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if displayedDeps.isEmpty {
+                        VStack(spacing: 12) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.largeTitle)
+                                .foregroundStyle(.tertiary)
+                            Text("没有匹配的依赖")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
             .navigationTitle("依赖管理")
             .toolbar {
@@ -50,8 +79,16 @@ struct DependencyListView: View {
                     Button { showEditor = true } label: { Image(systemName: "plus") }
                 }
             }
-            .task { await session.loadDependencies() }
-            .refreshable { await session.loadDependencies() }
+            .task {
+                loading = true
+                await session.loadDependencies()
+                loading = false
+            }
+            .refreshable {
+                loading = true
+                await session.loadDependencies()
+                loading = false
+            }
             .sheet(isPresented: $showEditor) { DependencyEditorView(editing: nil) }
             .sheet(item: $editing) { dep in DependencyEditorView(editing: dep) }
             .sheet(item: $logDep) { dep in DependencyLogSheet(dep: dep) }
