@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import SwiftUI
 import UserNotifications
 
@@ -66,6 +67,13 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
         messages.insert(msg, at: 0)
         if messages.count > 300 { messages = Array(messages.prefix(300)) }
         persistMessages()
+        syncBadge()
+    }
+
+    /// 同步桌面 App 图标徽标为未读数（0 时清除）。
+    /// 用户要求：有通知消息时手机桌面图标显示数字。
+    private func syncBadge() {
+        UIApplication.shared.applicationIconBadgeNumber = unreadTotal
     }
 
     /// 未读消息总数。
@@ -83,17 +91,20 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
             messages[i].read = true; changed = true
         }
         if changed { persistMessages() }
+        syncBadge()
     }
 
     func markAllRead() {
         var changed = false
         for i in messages.indices where !messages[i].read { messages[i].read = true; changed = true }
         if changed { persistMessages() }
+        syncBadge()
     }
 
     func clearMessages(source: String) {
         messages.removeAll { $0.source == source }
         persistMessages()
+        syncBadge()
     }
 
     /// 正在监听完成状态的任务 id（避免重复轮询）。
@@ -102,6 +113,7 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
     private override init() {
         super.init()
         loadMessages()
+        syncBadge()
         // 注册 delegate：让 App 在前台时通知也以横幅形式弹出
         // （系统默认前台不展示通知）。
         UNUserNotificationCenter.current().delegate = self
@@ -157,6 +169,7 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
         content.title = title
         content.body = body
         content.sound = .default
+        content.badge = NSNumber(value: unreadTotal)
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }
@@ -168,9 +181,12 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
     }
 
     /// 任务执行完成提醒。
-    func notifyCronFinished(name: String) {
+    /// - Parameter detail: 推送通知的详细内容（耗时 / 日志末尾等）；为空时只显示完成状态。
+    func notifyCronFinished(name: String, detail: String = "") {
         guard enabled, notifyOnFinish else { return }
-        notify(title: "青龙客户端 Pro", body: "任务「\(name)」已执行完成")
+        var body = "任务「\(name)」执行完成"
+        if !detail.isEmpty { body += "\n" + detail }
+        notify(title: "青龙客户端 Pro", body: body)
     }
 
     // MARK: - 运行状态轮询
@@ -192,10 +208,30 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 await session.loadCrons()
                 if let cron = session.crons.first(where: { $0.id == cronId }), !cron.isRunning {
-                    notifyCronFinished(name: name)
+                    // 组装推送通知的详细内容：耗时 + 日志末尾（与面板推送内容一致），
+                    // 而不是只写「执行成功/失败」。
+                    let detail = await cronFinishDetail(session: session, cron: cron)
+                    notifyCronFinished(name: name, detail: detail)
                     return
                 }
             }
         }
+    }
+
+    /// 组装任务完成通知的详细内容（耗时 + 日志末尾若干行）。
+    private func cronFinishDetail(session: PanelSession, cron: CronTask) async -> String {
+        var parts: [String] = []
+        if let secs = cron.lastRunningTime?.value, secs > 0 {
+            parts.append(secs >= 60
+                ? String(format: "耗时：%.1f 分钟", Double(secs) / 60)
+                : String(format: "耗时：%d 秒", secs))
+        }
+        let logTail = await session.cronLogTail(id: cron.id)
+        if !logTail.isEmpty {
+            if !parts.isEmpty { parts.append("") }
+            parts.append("—— 日志末尾 ——")
+            parts.append(logTail)
+        }
+        return parts.joined(separator: "\n")
     }
 }

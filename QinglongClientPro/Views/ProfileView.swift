@@ -142,6 +142,9 @@ struct ProfileView: View {
             navItem(title: "依赖管理", icon: "square.stack.3d.up", color: .orange) {
                 DependencyListView()
             }
+            navItem(title: "配置文件", icon: "folder", color: .teal) {
+                ConfigListView()
+            }
         }
         .padding(.vertical, 16)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))

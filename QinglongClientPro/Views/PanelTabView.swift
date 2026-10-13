@@ -31,9 +31,6 @@ struct PanelTabView: View {
                     EnvListView()
                         .navigationBarTitleDisplayMode(.inline)
                         .tabItem { Label("环境变量", systemImage: "key") }
-                    ConfigListView()
-                        .navigationBarTitleDisplayMode(.inline)
-                        .tabItem { Label("配置文件", systemImage: "folder") }
                     ProfileView()
                         .navigationBarTitleDisplayMode(.inline)
                         .tabItem { Label("我的", systemImage: "person.crop.circle") }

@@ -34,7 +34,8 @@ struct NotificationCenterView: View {
 
                 // MARK: 青龙通知渠道会话
                 Section {
-                    if let ch = session.notificationConfig?.channel {
+                    // 企业微信机器人（weWorkBot）按需求不在通知栏展示
+                    if let ch = session.notificationConfig?.channel, ch != .weWorkBot {
                         Button { activeChannel = ch } label: {
                             conversationRow(
                                 icon: icon(for: ch),
@@ -47,8 +48,9 @@ struct NotificationCenterView: View {
                         }
                         .buttonStyle(.plain)
                     }
-                    if let items = session.notifyItems, !items.isEmpty {
-                        ForEach(items) { item in
+                    let channelItems = visibleChannelItems
+                    if !channelItems.isEmpty {
+                        ForEach(channelItems) { item in
                             if let ch = item.channel {
                                 Button { activeChannel = ch } label: {
                                     conversationRow(
@@ -64,7 +66,9 @@ struct NotificationCenterView: View {
                             }
                         }
                     }
-                    if session.notificationConfig?.channel == nil && (session.notifyItems?.isEmpty ?? true) {
+                    let hasCurrentChannel = session.notificationConfig?.channel != nil
+                        && session.notificationConfig?.channel != .weWorkBot
+                    if !hasCurrentChannel && channelItems.isEmpty {
                         Button {
                             Task {
                                 await session.loadNotificationConfig()
@@ -77,7 +81,7 @@ struct NotificationCenterView: View {
                 } header: {
                     Text("青龙通知渠道")
                 } footer: {
-                    Text("每个青龙通知方式为一个会话；点进去可经面板发送通知。服务端推送到这些渠道的消息不会回传到 App，会话内仅记录本 App 主动发送的内容。")
+                    Text("每个青龙通知方式为一个会话；点进去可经面板发送通知。服务端推送到这些渠道的消息不会回传到 App，会话内仅记录本 App 主动发送的内容。企业微信机器人不在展示范围。")
                 }
             }
             .listStyle(.insetGrouped)
@@ -151,6 +155,11 @@ struct NotificationCenterView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// 通知渠道会话列表（过滤掉企业微信机器人，按需求不展示）。
+    private var visibleChannelItems: [NotifyItem] {
+        (session.notifyItems ?? []).filter { $0.channel != nil && $0.channel != .weWorkBot }
     }
 
     private func icon(for channel: NotifyChannel) -> String {

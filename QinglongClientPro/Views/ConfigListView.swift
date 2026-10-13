@@ -4,32 +4,32 @@ struct ConfigListView: View {
     @EnvironmentObject var session: PanelSession
 
     var body: some View {
-        NavigationStack {
-            List {
-                if session.configFiles.isEmpty {
-                    Text("暂无配置文件")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(session.configFiles) { file in
-                    NavigationLink {
-                        ConfigEditorView(file: file)
-                    } label: {
-                        HStack {
-                            Image(systemName: "gearshape").foregroundStyle(.gray)
-                            Text(file.title)
-                            Spacer()
-                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
-                        }
+        // 注意：本视图现由「我的」页 push 进入，不能再自带 NavigationStack
+        // （外层已有栈，自带会丢返回按钮）。
+        List {
+            if session.configFiles.isEmpty {
+                Text("暂无配置文件")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(session.configFiles) { file in
+                NavigationLink {
+                    ConfigEditorView(file: file)
+                } label: {
+                    HStack {
+                        Image(systemName: "gearshape").foregroundStyle(.gray)
+                        Text(file.title)
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                     }
                 }
             }
-            .listStyle(.insetGrouped)
-            .navigationTitle("配置文件")
-            .navigationBarTitleDisplayMode(.inline)
-            .task { await session.loadConfigFiles() }
-            .refreshable { await session.loadConfigFiles() }
         }
+        .listStyle(.insetGrouped)
+        .navigationTitle("配置文件")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await session.loadConfigFiles() }
+        .refreshable { await session.loadConfigFiles() }
     }
 }
 
