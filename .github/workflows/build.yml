@@ -24,17 +24,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Inject update-check token (build-time secret)
-        env:
-          UPDATE_CHECK_TOKEN: ${{ secrets.UPDATE_CHECK_TOKEN }}
-        run: |
-          if [ -n "$UPDATE_CHECK_TOKEN" ]; then
-            sed -i '' "s/REPLACE_WITH_GITHUB_TOKEN/$UPDATE_CHECK_TOKEN/g" QinglongClientPro/UpdateChecker.swift
-            echo "update-check token injected"
-          else
-            echo "WARNING: secrets.UPDATE_CHECK_TOKEN not set; update check will be unauthenticated (401)"
-          fi
-
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 
@@ -92,8 +81,6 @@ jobs:
           # 更新说明取自仓库根目录 RELEASE_NOTES.md（每次发版同步维护）
           body_path: RELEASE_NOTES.md
           files: build/QinglongClientPro.ipa
-          # 重新构建同一版本时先删后建，避免重复 Release 导致 422
-          remove: true
 
       - name: Upload IPA to release (if tagged)
         if: startsWith(github.ref, 'refs/tags/')
