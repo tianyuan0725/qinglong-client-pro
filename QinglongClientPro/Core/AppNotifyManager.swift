@@ -17,6 +17,11 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
         didSet { if enabled { requestAuthorization() } }
     }
 
+    /// 任务「开始执行」通知开关（受总开关 enabled 控制）。
+    @AppStorage("qlpro_notify_start") var notifyOnStart: Bool = true
+    /// 任务「执行完成」通知开关（受总开关 enabled 控制）。
+    @AppStorage("qlpro_notify_finish") var notifyOnFinish: Bool = true
+
     /// 是否已获得系统通知权限。
     @Published var authorized = false
 
@@ -84,13 +89,13 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
 
     /// 任务开始执行提醒。
     func notifyCronStarted(name: String) {
-        guard enabled else { return }
+        guard enabled, notifyOnStart else { return }
         notify(title: "青龙客户端 Pro", body: "任务「\(name)」已开始执行")
     }
 
     /// 任务执行完成提醒。
     func notifyCronFinished(name: String) {
-        guard enabled else { return }
+        guard enabled, notifyOnFinish else { return }
         notify(title: "青龙客户端 Pro", body: "任务「\(name)」已执行完成")
     }
 

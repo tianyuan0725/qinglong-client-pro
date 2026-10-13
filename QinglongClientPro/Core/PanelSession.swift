@@ -29,6 +29,12 @@ final class PanelSession: ObservableObject {
     private var tokenAccount: String { "qlpro_token_\(connection.id)" }
 
     @Published var systemInfo: SystemInfo?
+    /// 仪表盘系统资源（GET /dashboard/system）。旧版面板（<2.23）无此接口，保持 nil。
+    @Published var dashboardSystem: DashboardSystemInfo?
+    /// 仪表盘今日统计（GET /dashboard/overview）。
+    @Published var dashboardOverview: DashboardOverview?
+    /// 运行中任务（GET /dashboard/runtime）。
+    @Published var dashboardRuntime: DashboardRuntime?
     @Published var crons: [CronTask] = []
     @Published var envs: [EnvVar] = []
 
@@ -195,6 +201,10 @@ final class PanelSession: ObservableObject {
             group.addTask { await self.loadCrons() }
             group.addTask { await self.loadEnvs() }
             group.addTask { await self.loadPanelInfo() }
+            group.addTask { await self.loadSubscriptions() }
+            group.addTask { await self.loadDashboardSystem() }
+            group.addTask { await self.loadDashboardOverview() }
+            group.addTask { await self.loadDashboardRuntime() }
         }
     }
 
@@ -207,6 +217,24 @@ final class PanelSession: ObservableObject {
     var disabledEnvCount: Int { envs.filter { !$0.isEnabled }.count }
 
     // MARK: - Loaders
+
+    // MARK: - Dashboard（v2.23+ 面板）
+
+    /// 系统资源。旧版面板没有 /dashboard 路由（404），静默失败保持 nil。
+    func loadDashboardSystem() async {
+        do { dashboardSystem = try await client.getDashboardSystem() }
+        catch { /* 旧版面板无此接口，忽略 */ }
+    }
+
+    func loadDashboardOverview() async {
+        do { dashboardOverview = try await client.getDashboardOverview() }
+        catch { /* 非关键 */ }
+    }
+
+    func loadDashboardRuntime() async {
+        do { dashboardRuntime = try await client.getDashboardRuntime() }
+        catch { /* 非关键 */ }
+    }
 
     func loadSystem() async {
         do { systemInfo = try await client.getSystem() }

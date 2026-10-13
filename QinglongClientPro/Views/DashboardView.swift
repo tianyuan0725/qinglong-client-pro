@@ -10,10 +10,16 @@ struct DashboardView: View {
             List {
                 // MARK: 系统状态
                 Section {
-                    if let sys = session.systemInfo {
-                        statusRow("cpu", "CPU", sys.cpuUsageText)
-                        statusRow("memorychip", "内存", sys.memoryUsageText)
-                        statusRow("internaldrive", "磁盘", sys.diskUsageText)
+                    if let sys = session.dashboardSystem {
+                        statusRow("memorychip", "内存使用率", sys.memoryPercentText)
+                        statusRow("internaldrive", "内存", sys.memoryBytesText)
+                        statusRow("clock", "系统运行", sys.uptimeText)
+                        statusRow("square.stack.3d.up", "堆内存", sys.heapText)
+                        statusRow("waveform.path.ecg", "负载 (1m)", sys.loadText)
+                        statusRow("cpu", "CPU", sys.cpuText)
+                    } else if session.systemInfo != nil {
+                        Text("当前面板版本较低（低于 v2.23），暂不支持读取系统资源")
+                            .foregroundStyle(.secondary)
                     } else {
                         Text("正在读取系统状态…")
                             .foregroundStyle(.secondary)
@@ -29,6 +35,12 @@ struct DashboardView: View {
                         statTile("运行中", session.runningCount, "arrow.triangle.2.circlepath", .green)
                         statTile("环境变量", session.envCount, "key", .purple)
                         statTile("订阅", session.subscriptions.count, "square.and.arrow.down", .orange)
+                        statTile("今日执行", session.dashboardOverview?.todayRuns ?? 0, "bolt", .green)
+                        statTile("今日成功", session.dashboardOverview?.todaySuccess ?? 0, "checkmark.circle", .green)
+                        statTile("今日失败", session.dashboardOverview?.todayFail ?? 0, "xmark.circle", .red)
+                        statTextTile("成功率", session.dashboardOverview?.successRateText ?? "—", "checkmark.seal", .teal)
+                        statTextTile("平均耗时", session.dashboardOverview?.avgTimeText ?? "—", "clock", .orange)
+                        statTile("已禁用任务", session.dashboardOverview?.disabled ?? 0, "stop", .gray)
                     }
                     .padding(.vertical, 6)
                     .listRowBackground(Color.clear)
@@ -115,7 +127,9 @@ struct DashboardView: View {
             }
             .refreshable { await session.loadAll() }
             .task {
-                if session.systemInfo == nil || session.panelInfo == nil {
+                if session.systemInfo == nil || session.panelInfo == nil
+                    || session.dashboardSystem == nil || session.dashboardOverview == nil
+                    || session.subscriptions.isEmpty {
                     await session.loadAll()
                 }
             }
@@ -143,6 +157,27 @@ struct DashboardView: View {
                 Spacer()
                 Text("\(value)")
                     .font(.title2.weight(.semibold).monospacedDigit())
+            }
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// 文本数值瓦片（用于成功率、平均耗时等非整数指标）。
+    private func statTextTile(_ title: String, _ value: String, _ icon: String, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: icon)
+                    .foregroundStyle(color)
+                Spacer()
+                Text(value)
+                    .font(.title3.weight(.semibold).monospacedDigit())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
             Text(title)
                 .font(.caption)

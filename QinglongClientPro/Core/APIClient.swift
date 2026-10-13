@@ -249,6 +249,32 @@ final class APIClient {
 
     // MARK: - System
 
+    // MARK: - Dashboard（青龙 v2.23+；系统资源在 /dashboard 下，/system 只有版本信息）
+
+    /// GET /dashboard/system —— 系统资源（内存/负载/CPU 核心/运行时长）。
+    func getDashboardSystem() async throws -> DashboardSystemInfo? {
+        let data = try await request(path: "/dashboard/system", method: "GET")
+        guard let dataObj = try unwrap(data) else { return nil }
+        let reencoded = try JSONSerialization.data(withJSONObject: dataObj)
+        return try JSONDecoder().decode(DashboardSystemInfo.self, from: reencoded)
+    }
+
+    /// GET /dashboard/overview —— 今日执行统计。
+    func getDashboardOverview() async throws -> DashboardOverview? {
+        let data = try await request(path: "/dashboard/overview", method: "GET")
+        guard let dataObj = try unwrap(data) else { return nil }
+        let reencoded = try JSONSerialization.data(withJSONObject: dataObj)
+        return try JSONDecoder().decode(DashboardOverview.self, from: reencoded)
+    }
+
+    /// GET /dashboard/runtime —— 运行中/排队中的任务。
+    func getDashboardRuntime() async throws -> DashboardRuntime? {
+        let data = try await request(path: "/dashboard/runtime", method: "GET")
+        guard let dataObj = try unwrap(data) else { return nil }
+        let reencoded = try JSONSerialization.data(withJSONObject: dataObj)
+        return try JSONDecoder().decode(DashboardRuntime.self, from: reencoded)
+    }
+
     func getSystem() async throws -> SystemInfo? {
         let data = try await request(path: "/system", method: "GET")
         guard let dataObj = try unwrap(data) else { return nil }

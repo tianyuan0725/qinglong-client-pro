@@ -113,6 +113,11 @@ struct SystemSettingsView: View {
                             notify.notify(title: "青龙客户端 Pro", body: "这是一条本地测试通知")
                         }
                     }
+                    NavigationLink {
+                        LocalNotifySettingsView()
+                    } label: {
+                        Label("更多通知选项", systemImage: "bell")
+                    }
                     Button {
                         showNotify = true
                     } label: {
