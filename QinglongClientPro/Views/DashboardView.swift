@@ -4,6 +4,7 @@ import SwiftUI
 /// 任务/变量/订阅统计、运行中任务、最近执行任务、面板信息。
 struct DashboardView: View {
     @EnvironmentObject var session: PanelSession
+    @State private var todaySheet: TodaySheetMode? = nil
 
     var body: some View {
         NavigationStack {
@@ -35,9 +36,9 @@ struct DashboardView: View {
                         statTile("运行中", session.runningCount, "arrow.triangle.2.circlepath", .green)
                         statTile("环境变量", session.envCount, "key", .purple)
                         statTile("订阅", session.subscriptions.count, "square.and.arrow.down", .orange)
-                        statTile("今日执行", session.dashboardOverview?.todayRuns ?? 0, "bolt", .green)
-                        statTile("今日成功", session.dashboardOverview?.todaySuccess ?? 0, "checkmark.circle", .green)
-                        statTile("今日失败", session.dashboardOverview?.todayFail ?? 0, "xmark.circle", .red)
+                        todayTile("今日执行", session.dashboardOverview?.todayRuns ?? 0, "bolt", .green, .all)
+                        todayTile("今日成功", session.dashboardOverview?.todaySuccess ?? 0, "checkmark.circle", .green, .success)
+                        todayTile("今日失败", session.dashboardOverview?.todayFail ?? 0, "xmark.circle", .red, .fail)
                         statTextTile("成功率", session.dashboardOverview?.successRateText ?? "—", "checkmark.seal", .teal)
                         statTextTile("平均耗时", session.dashboardOverview?.avgTimeText ?? "—", "clock", .orange)
                         statTile("已禁用任务", session.dashboardOverview?.disabled ?? 0, "stop", .gray)
@@ -133,18 +134,82 @@ struct DashboardView: View {
                     await session.loadAll()
                 }
             }
+            .sheet(item: $todaySheet) { mode in
+                TodayTasksSheet(title: mode.title, tasks: todayTasks(for: mode))
+                    .environmentObject(session)
+            }
         }
+    }
+
+    // MARK: - 今日执行任务弹窗
+
+    enum TodaySheetMode: Identifiable {
+        case all, success, fail
+        var id: String { "\(self)" }
+        var title: String {
+            switch self {
+            case .all: return "今日执行的任务"
+            case .success: return "今日成功执行的任务"
+            case .fail: return "今日失败 / 被禁用的任务"
+            }
+        }
+    }
+
+    private var todayStart: Date {
+        Calendar.current.startOfDay(for: Date())
+    }
+
+    private func ranToday(_ cron: CronTask) -> Bool {
+        guard let t = cron.lastExecutionTime?.value, t > 0 else { return false }
+        let ts = t > 1_000_000_000_000 ? TimeInterval(t) / 1000 : TimeInterval(t)
+        return Date(timeIntervalSince1970: ts) >= todayStart
+    }
+
+    private func todayTasks(for mode: TodaySheetMode) -> [CronTask] {
+        let list = session.crons.filter { ranToday($0) }
+        switch mode {
+        case .all: return list
+        case .success: return list.filter { $0.status?.value != 2 }
+        case .fail: return list.filter { $0.status?.value == 2 }
+        }
+    }
+
+    private func todayTile(_ title: String, _ value: Int, _ icon: String, _ color: Color, _ mode: TodaySheetMode) -> some View {
+        Button {
+            todaySheet = mode
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: icon)
+                        .foregroundStyle(color)
+                    Spacer()
+                    Text("\(value)")
+                        .font(.title2.weight(.semibold).monospacedDigit())
+                }
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - 组件
 
     private func statusRow(_ icon: String, _ title: String, _ value: String?) -> some View {
-        HStack {
-            Label(title, systemImage: icon)
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(title)
+                .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
             Text(value ?? "—")
-                .font(.subheadline.monospacedDigit())
+                .font(.caption.monospacedDigit())
                 .foregroundStyle(value == nil ? .secondary : .primary)
         }
     }
@@ -199,5 +264,60 @@ struct DashboardView: View {
             .sorted { ($0.lastExecutionTime?.value ?? 0) > ($1.lastExecutionTime?.value ?? 0) }
             .prefix(5)
             .map { $0 }
+    }
+}
+
+/// 今日执行任务弹窗：列出今天有执行记录的任务（含最后执行时间与当前状态）。
+/// 说明：面板 API 只提供「今日成功/失败」的计数，不含逐任务成败明细，
+/// 此处按「当前是否禁用（status=2）」近似归类，点单个任务可看其运行日志。
+struct TodayTasksSheet: View {
+    @EnvironmentObject var session: PanelSession
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let tasks: [CronTask]
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if tasks.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "tray")
+                            .font(.largeTitle)
+                            .foregroundStyle(.tertiary)
+                        Text("今日暂无相关执行记录")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        ForEach(tasks) { cron in
+                            NavigationLink {
+                                CronDetailView(cron: cron)
+                                    .environmentObject(session)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(cron.name).font(.subheadline.weight(.medium)).lineLimit(1)
+                                        if let t = cron.lastExecutionText {
+                                            Text("最后执行 \(t)")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    Spacer()
+                                    StatusPill(text: cron.statusLabel,
+                                               color: cron.isRunning ? .green : (cron.isEnabled ? .blue : .gray))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
+            }
+        }
     }
 }

@@ -432,6 +432,12 @@ final class APIClient {
         try ensureOK(data)
     }
 
+    /// 依赖安装/运行日志（GET /api/dependencies/{id}/log，返回纯文本）。
+    func dependencyLog(id: Int) async throws -> String {
+        let data = try await request(path: "/dependencies/\(id)/log", method: "GET")
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
     // MARK: - Config files
 
     func getConfigFiles() async throws -> [ConfigFile] {

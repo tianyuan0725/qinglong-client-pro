@@ -5,6 +5,7 @@ struct DependencyListView: View {
     @State private var showEditor = false
     @State private var editing: Dependency? = nil
     @State private var confirmDelete: [Dependency]? = nil
+    @State private var logDep: Dependency? = nil
     @State private var typeSegment = -1        // -1 全部 / 0 Node / 1 Python / 2 Linux
     @State private var statusSegment = ""      // "" 全部 / 状态数字
 
@@ -12,7 +13,7 @@ struct DependencyListView: View {
             VStack(spacing: 0) {
                 filterBar
                 List {
-                    ForEach(session.dependencies) { dep in
+                    ForEach(displayedDeps) { dep in
                         HStack(alignment: .top, spacing: 10) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(dep.name).font(.subheadline.weight(.medium))
@@ -28,6 +29,8 @@ struct DependencyListView: View {
                         }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) { confirmDelete = [dep] } label: { Label("删除", systemImage: "trash") }
+                            Button { logDep = dep } label: { Label("日志", systemImage: "doc.plaintext") }
+                                .tint(.purple)
                             Button { Task { await session.reinstallDependencies(ids: [dep._id]) } } label: { Label("重装", systemImage: "arrow.clockwise") }
                                 .tint(.blue)
                             if dep.isBusy {
@@ -51,6 +54,7 @@ struct DependencyListView: View {
             .refreshable { await session.loadDependencies() }
             .sheet(isPresented: $showEditor) { DependencyEditorView(editing: nil) }
             .sheet(item: $editing) { dep in DependencyEditorView(editing: dep) }
+            .sheet(item: $logDep) { dep in DependencyLogSheet(dep: dep) }
             .alert("删除依赖", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } })) {
                 Button("取消", role: .cancel) { confirmDelete = nil }
                 Button("删除") {
@@ -71,6 +75,19 @@ struct DependencyListView: View {
         if dep.status == 2 || dep.status == 5 { return .red }
         if dep.status == 7 { return .gray }
         return .orange
+    }
+
+    /// 客户端即时筛选：按类型 / 状态 / 搜索关键字过滤，切段控件无需等待网络。
+    private var displayedDeps: [Dependency] {
+        session.dependencies.filter { dep in
+            if typeSegment >= 0, dep.type != typeSegment { return false }
+            if !statusSegment.isEmpty, String(dep.status) != statusSegment { return false }
+            if !depSearch.isEmpty {
+                let q = depSearch.lowercased()
+                guard dep.name.lowercased().contains(q) || dep.remark.lowercased().contains(q) else { return false }
+            }
+            return true
+        }
     }
 
     private var filterBar: some View {
@@ -170,5 +187,53 @@ struct DependencyEditorView: View {
                 }
             }
         }
+    }
+}
+
+/// 依赖日志弹窗：查看单个依赖的安装/运行日志（GET /api/dependencies/{id}/log）。
+struct DependencyLogSheet: View {
+    @EnvironmentObject var session: PanelSession
+    @Environment(\.dismiss) private var dismiss
+    let dep: Dependency
+
+    @State private var logText = ""
+    @State private var loading = false
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if loading {
+                    VStack(spacing: 10) {
+                        ProgressView()
+                        Text("加载中…").font(.caption).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        Text(logText.isEmpty ? "（暂无日志，依赖可能还未安装/运行过）" : logText)
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                            .padding(12)
+                    }
+                }
+            }
+            .navigationTitle(dep.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button { Task { await reload() } } label: { Image(systemName: "arrow.clockwise") }
+                        .disabled(loading)
+                }
+            }
+            .task { await reload() }
+        }
+    }
+
+    private func reload() async {
+        loading = true
+        defer { loading = false }
+        logText = await session.dependencyLog(id: dep._id)
     }
 }

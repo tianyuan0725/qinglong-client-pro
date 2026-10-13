@@ -46,7 +46,7 @@ struct CronListView: View {
                         Text("已禁用").tag("disabled")
                     }
                     .pickerStyle(.segmented)
-                    .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
                 }
                 .listRowSeparator(.hidden)
 
@@ -134,7 +134,7 @@ struct CronListView: View {
     // MARK: - 系统概览卡片
 
     private var summaryCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text("青龙 v\(session.panelInfo?.version ?? session.systemInfo?.version ?? "—")")
                     .font(.caption.weight(.semibold))
@@ -157,8 +157,8 @@ struct CronListView: View {
                 .font(.caption)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
     }
 
@@ -188,13 +188,13 @@ struct CronListView: View {
             CronDetailView(cron: cron)
                 .environmentObject(session)
         } label: {
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Image(systemName: cron.isRunning ? "arrow.triangle.2.circlepath" : "timer")
                     .foregroundStyle(cron.isRunning ? Color.green : qlBrandGreen)
-                    .frame(width: 24)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(cron.name).font(.headline).lineLimit(1)
-                    Text(cron.schedule).font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(cron.name).font(.subheadline.weight(.medium)).lineLimit(1)
+                    Text(cron.schedule).font(.caption2).foregroundStyle(.secondary)
                     if !cron.labels.isEmpty {
                         Text(cron.labels.joined(separator: " · "))
                             .font(.caption2)
@@ -206,7 +206,7 @@ struct CronListView: View {
                 StatusPill(text: cron.statusLabel,
                            color: cron.isRunning ? .green : (cron.isEnabled ? .blue : .gray))
             }
-            .padding(.vertical, 2)
+            .padding(.vertical, 4)
         }
     }
 }

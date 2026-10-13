@@ -393,12 +393,15 @@ final class PanelSession: ObservableObject {
 
     func loadDependencies() async {
         do {
-            dependencies = try await client.getDependencies(
-                type: depTypeFilter,
-                search: depSearch.isEmpty ? nil : depSearch,
-                status: depStatusFilter.isEmpty ? nil : depStatusFilter
-            )
+            // 一次性拉取全部依赖，类型/状态/搜索均改为客户端即时筛选，
+            // 切顶部段控件时无需等待网络即可立即刷新列表。
+            dependencies = try await client.getDependencies(type: nil, search: nil, status: nil)
         } catch { lastError = error.localizedDescription }
+    }
+
+    /// 读取单个依赖的安装/运行日志（GET /api/dependencies/{id}/log）。
+    func dependencyLog(id: Int) async -> String {
+        (try? await client.dependencyLog(id: id)) ?? "（无法获取日志）"
     }
 
     func createDependency(name: String, type: Int, remark: String) async -> Bool {
