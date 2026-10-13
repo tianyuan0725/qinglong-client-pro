@@ -59,6 +59,7 @@ struct EnvListView: View {
             }
             .listStyle(.insetGrouped)
             .navigationTitle("环境变量")
+            .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $search, prompt: "搜索名称 / 备注 / 值")
             .refreshable { await session.loadEnvs() }
             .overlay {

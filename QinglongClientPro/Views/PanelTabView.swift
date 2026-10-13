@@ -18,14 +18,19 @@ struct PanelTabView: View {
             } else if session.isAuthenticated {
                 TabView {
                     DashboardView()
+                        .navigationBarTitleDisplayMode(.inline)
                         .tabItem { Label("仪表盘", systemImage: "gauge.medium") }
                     CronListView()
+                        .navigationBarTitleDisplayMode(.inline)
                         .tabItem { Label("定时任务", systemImage: "list.bullet.rectangle") }
                     EnvListView()
+                        .navigationBarTitleDisplayMode(.inline)
                         .tabItem { Label("环境变量", systemImage: "key") }
                     ConfigListView()
+                        .navigationBarTitleDisplayMode(.inline)
                         .tabItem { Label("配置文件", systemImage: "folder") }
                     ProfileView()
+                        .navigationBarTitleDisplayMode(.inline)
                         .tabItem { Label("我的", systemImage: "person.crop.circle") }
                 }
                 .tint(qlBrandGreen)

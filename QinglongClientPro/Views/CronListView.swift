@@ -32,18 +32,21 @@ struct CronListView: View {
         NavigationStack {
             List {
                 Section {
-                    summaryCard
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
-                    Picker("状态", selection: $filter) {
-                        Text("全部").tag("all")
-                        Text("运行中").tag("running")
-                        Text("未使用").tag("unused")
-                        Text("已禁用").tag("disabled")
+                    VStack(alignment: .leading, spacing: 12) {
+                        summaryContent
+                        Picker("状态", selection: $filter) {
+                            Text("全部").tag("all")
+                            Text("运行中").tag("running")
+                            Text("未使用").tag("unused")
+                            Text("已禁用").tag("disabled")
+                        }
+                        .pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 6, trailing: 12))
+                    .padding(12)
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
                 }
                 .listRowSeparator(.hidden)
 
@@ -81,6 +84,7 @@ struct CronListView: View {
             }
             .listStyle(.insetGrouped)
             .navigationTitle("定时任务")
+            .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $search, prompt: "搜索名称 / 命令 / 周期")
             .refreshable { await session.loadCrons() }
             .overlay {
@@ -130,7 +134,7 @@ struct CronListView: View {
 
     // MARK: - 系统概览卡片
 
-    private var summaryCard: some View {
+    private var summaryContent: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text("青龙 v\(session.panelInfo?.version ?? session.systemInfo?.version ?? "—")")
@@ -154,9 +158,6 @@ struct CronListView: View {
                 .font(.caption)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func statItem(_ title: String, _ value: Int, _ color: Color) -> some View {

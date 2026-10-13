@@ -21,6 +21,7 @@ struct DashboardView: View {
                             statusCell("cpu", "CPU", sys.cpuText)
                         }
                         .padding(.vertical, 2)
+                        .listRowInsets(EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4))
                         .listRowBackground(Color.clear)
                     } else if session.systemInfo != nil {
                         Text("当前面板版本较低（低于 v2.23），暂不支持读取系统资源")
@@ -31,7 +32,7 @@ struct DashboardView: View {
                     }
                 } header: {
                     Label("系统状态", systemImage: "gauge.medium")
-                        .font(.headline)
+                        .font(.footnote)
                 }
 
                 // MARK: 统计概览
@@ -49,10 +50,11 @@ struct DashboardView: View {
                         statTile("已禁用任务", session.dashboardOverview?.disabled ?? 0, "stop", .gray)
                     }
                     .padding(.vertical, 2)
+                    .listRowInsets(EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4))
                     .listRowBackground(Color.clear)
                 } header: {
                     Label("概览", systemImage: "chart.pie")
-                        .font(.headline)
+                        .font(.footnote)
                 }
 
                 // MARK: 运行中的任务
@@ -81,7 +83,7 @@ struct DashboardView: View {
                     }
                 } header: {
                     Label("运行中的任务", systemImage: "play.circle")
-                        .font(.headline)
+                        .font(.footnote)
                 }
 
                 // MARK: 最近执行
@@ -105,7 +107,7 @@ struct DashboardView: View {
                     }
                 } header: {
                     Label("最近执行", systemImage: "clock")
-                        .font(.headline)
+                        .font(.footnote)
                 }
 
                 // MARK: 面板信息
@@ -123,11 +125,12 @@ struct DashboardView: View {
                     }
                 } header: {
                     Label("面板信息", systemImage: "server.rack")
-                        .font(.headline)
+                        .font(.footnote)
                 }
             }
             .listStyle(.insetGrouped)
             .navigationTitle("仪表盘")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { Task { await session.loadAll() } } label: {
@@ -193,15 +196,15 @@ struct DashboardView: View {
                         .foregroundStyle(color)
                     Spacer()
                     Text("\(value)")
-                        .font(.title2.weight(.semibold).monospacedDigit())
+                        .font(.title.weight(.semibold).monospacedDigit())
                 }
                 Text(title)
-                    .font(.caption)
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
             }
-            .padding(9)
+            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
     }
@@ -215,11 +218,11 @@ struct DashboardView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text(title)
-                .font(.caption)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 2)
             Text(value ?? "—")
-                .font(.footnote.monospacedDigit())
+                .font(.subheadline.monospacedDigit().weight(.medium))
                 .foregroundStyle(value == nil ? .secondary : .primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
@@ -233,15 +236,15 @@ struct DashboardView: View {
                     .foregroundStyle(color)
                 Spacer()
                 Text("\(value)")
-                    .font(.title2.weight(.semibold).monospacedDigit())
+                    .font(.title.weight(.semibold).monospacedDigit())
             }
             Text(title)
-                .font(.caption)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
         }
-        .padding(9)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
     }
 
     /// 文本数值瓦片（用于成功率、平均耗时等非整数指标）。
@@ -252,17 +255,17 @@ struct DashboardView: View {
                     .foregroundStyle(color)
                 Spacer()
                 Text(value)
-                    .font(.title2.weight(.semibold).monospacedDigit())
+                    .font(.title.weight(.semibold).monospacedDigit())
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
             Text(title)
-                .font(.caption)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
         }
-        .padding(9)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private var runningCrons: [CronTask] {
@@ -312,7 +315,7 @@ struct TodayTasksSheet: View {
                                         Text(cron.name).font(.subheadline.weight(.medium)).lineLimit(1)
                                         if let t = cron.lastExecutionText {
                                             Text("最后执行 \(t)")
-                                                .font(.caption2)
+                                                .font(.caption)
                                                 .foregroundStyle(.secondary)
                                         }
                                     }

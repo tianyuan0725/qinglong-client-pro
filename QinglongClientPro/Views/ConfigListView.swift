@@ -26,6 +26,7 @@ struct ConfigListView: View {
             }
             .listStyle(.insetGrouped)
             .navigationTitle("配置文件")
+            .navigationBarTitleDisplayMode(.inline)
             .task { await session.loadConfigFiles() }
             .refreshable { await session.loadConfigFiles() }
         }
