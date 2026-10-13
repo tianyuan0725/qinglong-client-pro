@@ -20,7 +20,12 @@ struct ConnectionListView: View {
                     }
                     ForEach(store.connections) { conn in
                         Button {
+                            // 切换账号：RootView 会按 conn.id 重建 PanelTabView
+                            // （新 PanelSession 重新登录/恢复 token）。
+                            // dismiss()：从「账号排序」sheet 进入时立即收起，
+                            // 避免旧面板内容一闪（被 push 时为 no-op）。
                             appState.selected = conn
+                            dismiss()
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: "server.rack")

@@ -3,6 +3,13 @@ import SwiftUI
 /// 关于软件：客户端版本 + 面板版本信息 + 面板更新日志。
 struct AboutView: View {
     @EnvironmentObject var session: PanelSession
+    /// 更新日志历史是否展开（默认只显示最新一条）。
+    @State private var historyExpanded = false
+
+    /// 折叠态只显示最新一条；展开显示全部。
+    private var visibleChangelogEntries: [AppChangelog.Entry] {
+        historyExpanded ? AppChangelog.entries : Array(AppChangelog.entries.prefix(1))
+    }
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
@@ -43,7 +50,8 @@ struct AboutView: View {
             }
 
             Section("客户端更新日志") {
-                ForEach(AppChangelog.entries) { entry in
+                // 默认只显示最新一条，历史日志折叠，点击展开（v2.3.3 反馈）
+                ForEach(visibleChangelogEntries) { entry in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text("v\(entry.version)")
@@ -66,6 +74,15 @@ struct AboutView: View {
                         }
                     }
                     .padding(.vertical, 4)
+                }
+                if AppChangelog.entries.count > 1 {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { historyExpanded.toggle() }
+                    } label: {
+                        Label(historyExpanded ? "收起历史日志" : "显示历史日志（\(AppChangelog.entries.count - 1) 条）",
+                              systemImage: historyExpanded ? "chevron.up" : "clock.arrow.circlepath")
+                            .font(.subheadline)
+                    }
                 }
             }
 

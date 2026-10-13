@@ -66,6 +66,7 @@ struct RootView: View {
     @EnvironmentObject var store: ConnectionStore
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var appLock: AppLockManager
+    @EnvironmentObject var updater: UpdateChecker
 
     var body: some View {
         Group {
@@ -77,6 +78,12 @@ struct RootView: View {
             // 不透明全屏遮罩，锁定期间用户只会看到解锁页。
             if let conn = appState.selected {
                 PanelTabView(connection: conn)
+                    // 按连接 id 强制重建：从「账号排序」sheet 里点新账号时
+                    // selected 只是值变化、外层 if 分支结构不变，PanelTabView
+                    // 实例会被复用，@StateObject session 不重建 → 登录的仍是
+                    // 旧账号（v2.3.3 反馈）。.id(conn.id) 让 id 变化时整体重建，
+                    // session 随之按新连接重新登录/恢复 token。
+                    .id(conn.id)
             } else {
                 ConnectionListView()
             }
@@ -84,6 +91,21 @@ struct RootView: View {
         .opacity(appLock.isLocked ? 0 : 1)
         .onAppear {
             autoOpenPanelIfNeeded()
+            autoCheckUpdate()
+        }
+    }
+
+    /// 启动时检查客户端更新：检测到新版本即**后台自动下载** IPA，
+    /// 下载完成的路径存 UserDefaults，更新页直接展示「点击安装」。
+    private func autoCheckUpdate() {
+        guard updater.updateNotifyEnabled, updater.latestVersion == nil else { return }
+        Task {
+            await updater.check()
+            if updater.hasUpdate, !updater.downloading, updater.downloadURL != nil {
+                if let file = await updater.downloadIPA() {
+                    UserDefaults.standard.set(file.path, forKey: UpdateSheet.downloadedKey)
+                }
+            }
         }
     }
 
