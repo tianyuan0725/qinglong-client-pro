@@ -94,7 +94,7 @@ gh repo create qinglong-client-pro --private --source=. --push
 产出的 IPA 为免签名构建，直接适配 TrollStore（CoreTrust 漏洞永久签）：
 
 1. 设备已装 TrollStore（巨魔）
-2. 用「文件」或 Safari 打开下载的 `QinglongClientPro.ipa` → 分享到 TrollStore
+2. 用「文件」或 Safari 打开下载的 IPA（文件名含版本号，如 `QinglongClientPro-v2.0.9.ipa`）→ 分享到 TrollStore
 3. 安装后即可永久使用，无需 7 天重签、无需开发者账号
 
 其他签名方式（AltStore / SideStore / 证书自签）同样适用。
