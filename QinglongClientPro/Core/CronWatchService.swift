@@ -155,7 +155,7 @@ final class CronWatchService: ObservableObject {
                 } else if !alreadyNotified {
                     manualStartNotified.remove(id)
                     lastNotifiedExec[id] = execTime
-                    let detail = finishDetail(cron: cron)
+                    let detail = await finishDetail(session: session, cron: cron)
                     AppNotifyManager.shared.notifyCronFinished(name: cron.name, detail: detail)
                 } else {
                     manualStartNotified.remove(id)
@@ -165,7 +165,7 @@ final class CronWatchService: ObservableObject {
                 changed = true
                 manualStartNotified.remove(id)
                 lastNotifiedExec[id] = execTime
-                let detail = finishDetail(cron: cron)
+                let detail = await finishDetail(session: session, cron: cron)
                 AppNotifyManager.shared.notifyCronFinished(name: cron.name, detail: detail)
             }
         }
@@ -188,7 +188,7 @@ final class CronWatchService: ObservableObject {
                     let known = previousExec[id]
                     // 有新执行（或首次记录到该任务有执行）且没在跑 → 离线期间完成
                     if execTime > 0, (known == nil || execTime > known!) {
-                        let detail = finishDetail(cron: cron)
+                        let detail = await finishDetail(session: session, cron: cron)
                         AppNotifyManager.shared.notifyCronFinished(name: cron.name, detail: detail)
                     }
                 }
@@ -203,26 +203,122 @@ final class CronWatchService: ObservableObject {
         saveSnapshot()
     }
 
-    /// 组装任务完成通知的详细内容（对齐青龙面板推送到微信的通知格式）：
-    /// 「执行成功 + 耗时 + 完成时间」，不打印脚本日志。
-    private func finishDetail(cron: CronTask) -> String {
-        var lines: [String] = ["执行成功"]
-        if let secs = cron.lastRunningTime?.value, secs > 0 {
-            lines.append(secs >= 60
-                ? String(format: "耗时: %.1f 分钟", Double(secs) / 60)
-                : String(format: "耗时: %d 秒", secs))
+    /// 组装任务完成通知内容，格式对齐青龙面板推送到微信的通知：
+    /// 成功 → 「✅ 执行成功 / ⏱️ 执行耗时: N 秒 / 🕐 完成时间: ...」
+    /// 失败 → 「❌ 错误标题 / 💬 错误信息: ... / ⏱️ 执行耗时 / 🕐 完成时间」
+    /// 状态与错误信息从 cron 日志实时解析（## 失败/❌ 标记、ERROR 行）。
+    private func finishDetail(session: PanelSession, cron: CronTask) async -> String {
+        let log = (try? await session.cronLog(id: cron.id)) ?? ""
+        let parsed = Self.parseCronLog(log)
+        var lines: [String] = []
+        if parsed.failed {
+            lines.append("❌ \(parsed.errorTitle.isEmpty ? "任务执行异常" : parsed.errorTitle)")
+            if !parsed.errorDetail.isEmpty {
+                lines.append("💬 错误信息: \(parsed.errorDetail)")
+            }
+        } else {
+            lines.append("✅ 执行成功")
         }
-        if let ms = cron.lastExecutionTime?.value, ms > 0 {
-            lines.append("时间: \(Self.timeText(ms: ms))")
+        // 耗时：优先日志结论行的「耗时 N 秒」（与面板一致），其次 last_running_time
+        let secs = parsed.durationSecs ?? cron.lastRunningTime?.value ?? 0
+        if secs > 0 {
+            lines.append(secs >= 60
+                ? String(format: "⏱️ 执行耗时: %.1f 分钟", Double(secs) / 60)
+                : String(format: "⏱️ 执行耗时: %d 秒", secs))
+        }
+        // 完成时间：优先日志结论行时刻；last_execution_time 记的是开始时刻，
+        // 兜底用「开始 + 耗时」。注意不同青龙版本时间戳可能是秒或毫秒。
+        if let finished = parsed.finishedAt {
+            lines.append("🕐 完成时间: \(finished)")
+        } else if let raw = cron.lastExecutionTime?.value, raw > 0 {
+            let startSec = raw > 100_000_000_000 ? raw / 1000 : raw
+            let finished = Date(timeIntervalSince1970: Double(startSec) + Double(secs))
+            lines.append("🕐 完成时间: \(Self.dateText(finished))")
         }
         return lines.joined(separator: "\n")
     }
 
-    /// last_execution_time（毫秒时间戳）→ "HH:mm:ss"。
-    private static func timeText(ms: Int) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(ms) / 1000)
+    /// 青龙 cron 日志解析结果。
+    private struct LogParseResult {
+        var failed = false
+        var errorTitle = ""
+        var errorDetail = ""
+        /// 结论行里的耗时（秒），如 `耗时 8 秒`。
+        var durationSecs: Int?
+        /// 结论行里的完成时刻（原样文本，如 2026-10-13 22:19:02）。
+        var finishedAt: String?
+    }
+
+    /// 解析青龙 cron 日志：
+    /// - 失败判定：末尾结论行 `## 失败 ❌(退出码 N)` 或含 ❌；
+    /// - 错误标题/详情：最后一条 ` - ERROR - ` 行，按「标题: 详情」拆分
+    ///   （例：`任务执行异常: [Errno 2] No such file...` → 标题=任务执行异常，详情=[Errno 2]...）；
+    /// - 耗时/完成时间：结论行 `## 失败 ❌(退出码 1)... 2026-10-13 22:05:23  耗时 8 秒`；
+    ///   无 ERROR 行时兜底找 Traceback 末行（FileNotFoundError/Exception 等）。
+    private static func parseCronLog(_ log: String) -> LogParseResult {
+        let lines = log
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init)
+        var result = LogParseResult()
+        // 结论行（从后往前）：## 失败 ❌(退出码 1)... 2026-10-13 22:05:23  耗时 8 秒
+        var conclusion: String?
+        for line in lines.reversed() {
+            if line.contains("## 失败") || line.contains("## 执行成功") || line.contains("## 成功") {
+                conclusion = line
+                break
+            }
+        }
+        // 状态：结论行优先；没有结论行再按 ❌ 兜底
+        if let conclusion {
+            result.failed = conclusion.contains("## 失败") || conclusion.contains("❌")
+            if let m = conclusion.firstMatch(of: Self.timeRegex) {
+                result.finishedAt = String(m.0)
+            }
+            if let m = conclusion.firstMatch(of: Self.durationRegex) {
+                let n = Int(m.1) ?? 0
+                result.durationSecs = (m.2 == "分钟") ? n * 60 : n
+            }
+        } else {
+            for line in lines.reversed() {
+                if line.contains("❌") { result.failed = true; break }
+                if line.contains("✅") { break }
+            }
+        }
+        // 错误信息：最后一条 ERROR 行
+        for line in lines.reversed() {
+            guard let range = line.range(of: " - ERROR - ") else { continue }
+            let msg = String(line[range.upperBound...])
+            if let colon = msg.range(of: ": ") {
+                result.errorTitle = String(msg[..<colon.lowerBound])
+                result.errorDetail = String(msg[colon.upperBound...])
+            } else {
+                result.errorTitle = msg
+            }
+            break
+        }
+        // 兜底：失败了但没有 ERROR 行，取最后的异常行
+        if result.failed && result.errorDetail.isEmpty {
+            for line in lines.reversed() {
+                let t = line.trimmingCharacters(in: .whitespaces)
+                if t.contains("Error:") || t.contains("Exception") || t.contains("错误") {
+                    result.errorTitle = "任务执行异常"
+                    result.errorDetail = t
+                    break
+                }
+            }
+        }
+        return result
+    }
+
+    /// 结论行里的完成时刻：2026-10-13 22:05:23。
+    private static let timeRegex = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/
+    /// 结论行里的耗时：耗时 8 秒 / 耗时 1 分钟（group1=数值，group2=单位）。
+    private static let durationRegex = /耗时\s*(\d+)\s*(秒|分钟)/
+
+    /// Date → "yyyy-MM-dd HH:mm:ss"。
+    private static func dateText(_ date: Date) -> String {
         let fmt = DateFormatter()
-        fmt.dateFormat = "HH:mm:ss"
+        fmt.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return fmt.string(from: date)
     }
 

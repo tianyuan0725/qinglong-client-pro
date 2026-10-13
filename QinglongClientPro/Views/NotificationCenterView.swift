@@ -136,9 +136,23 @@ struct NotificationCenterView: View {
 /// 不再用 sheet 弹窗；返回按钮由外层 NavigationStack 提供。
 struct TaskChatView: View {
     @EnvironmentObject var notify: AppNotifyManager
+    /// 搜索关键字（过滤任务名 / 通知内容）。
+    @State private var searchText = ""
+    /// 清空二次确认。
+    @State private var showClearConfirm = false
 
     private var items: [AppNotifyManager.AppMessage] {
         notify.messages.filter { $0.source == "task" }
+    }
+
+    /// 按搜索关键字过滤（标题 + 正文，忽略大小写）。
+    private var filteredItems: [AppNotifyManager.AppMessage] {
+        let keyword = searchText.trimmingCharacters(in: .whitespaces)
+        guard !keyword.isEmpty else { return items }
+        return items.filter {
+            $0.title.localizedCaseInsensitiveContains(keyword)
+                || $0.body.localizedCaseInsensitiveContains(keyword)
+        }
     }
 
     var body: some View {
@@ -155,9 +169,21 @@ struct TaskChatView: View {
                         .foregroundStyle(.tertiary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if filteredItems.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.largeTitle)
+                        .foregroundStyle(.tertiary)
+                    Text("未找到相关通知")
+                        .foregroundStyle(.secondary)
+                    Text("换个关键字试试")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
-                    ForEach(items) { msg in
+                    ForEach(filteredItems) { msg in
                         VStack(alignment: .leading, spacing: 6) {
                             Text(msg.title)
                                 .font(.caption.weight(.semibold))
@@ -184,9 +210,16 @@ struct TaskChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button("清空") { notify.clearMessages(source: "task") }
+                Button("清空") { showClearConfirm = true }
                     .disabled(items.isEmpty)
             }
+        }
+        .searchable(text: $searchText, prompt: "搜索任务名或内容")
+        .confirmationDialog("确定清空全部任务通知？", isPresented: $showClearConfirm, titleVisibility: .visible) {
+            Button("清空（不可恢复）", role: .destructive) {
+                notify.clearMessages(source: "task")
+            }
+            Button("取消", role: .cancel) {}
         }
         .onAppear { notify.markRead(source: "task") }
     }
