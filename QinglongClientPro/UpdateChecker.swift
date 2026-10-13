@@ -52,7 +52,8 @@ final class UpdateChecker: ObservableObject {
         } catch {
             // 网络失败/接口异常：保留上一次的判定结果，只记录错误，
             // 绝不把 hasUpdate 置回 false（避免「明明有新版却提示已是最新」）。
-            error = error.localizedDescription
+            // 注意：catch 块内 error 是本地捕获的 Error 常量，必须用 self.error 访问属性。
+            self.error = error.localizedDescription
         }
     }
 
