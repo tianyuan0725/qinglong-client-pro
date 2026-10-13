@@ -3,6 +3,7 @@ import SwiftUI
 struct PanelTabView: View {
     let connection: Connection
     @StateObject private var session: PanelSession
+    @EnvironmentObject var notify: AppNotifyManager
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var store: ConnectionStore
 
@@ -17,6 +18,10 @@ struct PanelTabView: View {
                 restoringView
             } else if session.isAuthenticated {
                 TabView {
+                    NotificationCenterView()
+                        .badge(notify.unreadCount > 0 ? notify.unreadCount : nil)
+                        .navigationBarTitleDisplayMode(.inline)
+                        .tabItem { Label("通知", systemImage: "bell") }
                     DashboardView()
                         .navigationBarTitleDisplayMode(.inline)
                         .tabItem { Label("仪表盘", systemImage: "gauge.medium") }

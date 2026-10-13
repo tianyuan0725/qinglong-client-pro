@@ -449,22 +449,41 @@ struct UpdateSheet: View {
                         }
                         Section {
                             if updater.downloading {
-                                HStack(spacing: 10) {
-                                    ProgressView()
-                                    Text("正在下载 IPA…")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            } else if let _ = updater.downloadURL {
-                                Button {
-                                    Task {
-                                        if let local = await updater.downloadIPA() {
-                                            downloadedURL = local
-                                            showShare = true
-                                        }
+                                // 下载中：进度条 + 速率 + 百分比
+                                VStack(spacing: 10) {
+                                    ProgressView(value: updater.downloadProgress)
+                                        .progressViewStyle(.linear)
+                                        .tint(qlBrandGreen)
+                                    HStack {
+                                        Text(updater.downloadStatusText.isEmpty ? "正在下载 IPA…" : updater.downloadStatusText)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Text("\(Int(updater.downloadProgress * 100))%")
+                                            .font(.caption.monospacedDigit())
+                                            .foregroundStyle(.secondary)
                                     }
-                                } label: {
-                                    Label("下载 IPA 并更新", systemImage: "arrow.down.circle.fill")
+                                }
+                                .padding(.vertical, 4)
+                            } else if let _ = updater.downloadURL {
+                                if downloadedURL != nil {
+                                    // 已下载完成：显式二次确认后才弹分享面板。
+                                    // （修复旧版下载完成后自动弹分享导致的白屏；也避免误触）
+                                    Button {
+                                        showShare = true
+                                    } label: {
+                                        Label("IPA 已下载，点击安装", systemImage: "square.and.arrow.up")
+                                    }
+                                    .tint(qlBrandGreen)
+                                    Text("IPA 已保存到本机临时目录，点上方按钮经系统分享面板安装（TrollStore）。")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Button {
+                                        Task { downloadedURL = await updater.downloadIPA() }
+                                    } label: {
+                                        Label("下载 IPA 并更新", systemImage: "arrow.down.circle.fill")
+                                    }
                                 }
                                 if let web = updater.releaseURL {
                                     Link(destination: web) {

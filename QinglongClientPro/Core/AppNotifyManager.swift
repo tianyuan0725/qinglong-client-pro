@@ -25,11 +25,83 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
     /// 是否已获得系统通知权限。
     @Published var authorized = false
 
+    // MARK: - 通知中心（in-app 消息历史）
+
+    /// 通知中心里展示的一条消息。
+    struct AppMessage: Identifiable, Codable, Equatable {
+        let id: String
+        let title: String
+        let body: String
+        let date: Date
+        var read: Bool
+        /// 来源会话标识："task" = 本地任务通知；其余为青龙渠道 rawValue（如 "bark"）。
+        var source: String
+    }
+
+    /// 通知中心消息历史（持久化到磁盘，App 重启不丢；最新在最上方）。
+    @Published private(set) var messages: [AppMessage] = []
+
+    private var messagesFileURL: URL? {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("app_messages.json")
+    }
+
+    private func loadMessages() {
+        guard let url = messagesFileURL,
+              let data = try? Data(contentsOf: url),
+              let list = try? JSONDecoder().decode([AppMessage].self, from: data) else { return }
+        messages = list
+    }
+
+    private func persistMessages() {
+        guard let url = messagesFileURL,
+              let data = try? JSONEncoder().encode(messages) else { return }
+        try? data.write(to: url)
+    }
+
+    /// 记录一条消息到通知中心（与系统通知一起发；source 决定归入哪个会话）。
+    func record(title: String, body: String, source: String = "task") {
+        let msg = AppMessage(id: UUID().uuidString, title: title, body: body,
+                             date: Date(), read: false, source: source)
+        messages.insert(msg, at: 0)
+        if messages.count > 300 { messages = Array(messages.prefix(300)) }
+        persistMessages()
+    }
+
+    /// 未读消息总数。
+    var unreadCount: Int { messages.filter { !$0.read }.count }
+
+    /// 某会话的未读数。
+    func unreadCount(source: String) -> Int { messages.filter { $0.source == source && !$0.read }.count }
+
+    /// 某会话的最新一条消息（用于会话列表预览）。
+    func lastMessage(source: String) -> AppMessage? { messages.first { $0.source == source } }
+
+    func markRead(source: String) {
+        var changed = false
+        for i in messages.indices where messages[i].source == source && !messages[i].read {
+            messages[i].read = true; changed = true
+        }
+        if changed { persistMessages() }
+    }
+
+    func markAllRead() {
+        var changed = false
+        for i in messages.indices where !messages[i].read { messages[i].read = true; changed = true }
+        if changed { persistMessages() }
+    }
+
+    func clearMessages(source: String) {
+        messages.removeAll { $0.source == source }
+        persistMessages()
+    }
+
     /// 正在监听完成状态的任务 id（避免重复轮询）。
     private var watchingIds = Set<String>()
 
     private override init() {
         super.init()
+        loadMessages()
         // 注册 delegate：让 App 在前台时通知也以横幅形式弹出
         // （系统默认前台不展示通知）。
         UNUserNotificationCenter.current().delegate = self
@@ -74,7 +146,9 @@ final class AppNotifyManager: NSObject, ObservableObject, UNUserNotificationCent
     // MARK: - 发送
 
     /// 发送一条本地通知（立即展示）。未授权时先补一次授权请求。
+    /// 同时记录到通知中心（in-app 消息历史），供「通知」页签展示。
     func notify(title: String, body: String, identifier: String = UUID().uuidString) {
+        record(title: title, body: body)
         if !authorized {
             // 兜底：从未授权过（用户可能拒绝过系统对话框），先请求再发。
             requestAuthorization()

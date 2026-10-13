@@ -144,8 +144,19 @@ final class UpdateChecker: ObservableObject {
         return try JSONDecoder().decode(ReleasePayload.self, from: data)
     }
 
+    /// 下载进度 0.0 ~ 1.0。
+    @Published var downloadProgress: Double = 0
+    /// 下载速率/进度文案，如 "1.2 MB/s · 3.4MB/5.1MB"。
+    @Published var downloadStatusText: String = ""
+
+    /// 下载任务引用盒（进度轮询读取 URLSessionTask.progress）。
+    private final class ProgressBox {
+        var task: URLSessionTask?
+    }
+
     /// 直接下载最新版 IPA 到本机临时目录，返回本地文件 URL（供分享面板交给 TrollStore 安装）。
-    /// 失败返回 nil 并记录 `downloadError`。
+    /// 失败返回 nil 并记录 `downloadError`。下载过程实时更新 `downloadProgress` / `downloadStatusText`
+    /// （读 URLSessionDownloadTask 的 NSProgress，原生高效，无逐字节开销）。
     func downloadIPA() async -> URL? {
         guard let url = downloadURL else {
             downloadError = "未找到 IPA 下载地址"
@@ -153,21 +164,82 @@ final class UpdateChecker: ObservableObject {
         }
         downloading = true
         downloadError = nil
+        downloadProgress = 0
+        downloadStatusText = ""
         defer { downloading = false }
+
+        let box = ProgressBox()
+        let dlSession = session
+        // 进度/速率轮询：每 0.25s 读一次 NSProgress
+        let poller = Task { @MainActor [weak self] in
+            var lastBytes: Int64 = 0
+            var lastTime = Date()
+            while !Task.isCancelled {
+                guard let self, self.downloading else { break }
+                if let p = box.task?.progress, p.totalUnitCount > 0 {
+                    let done = p.completedUnitCount
+                    self.downloadProgress = p.fractionCompleted
+                    let now = Date()
+                    let dt = now.timeIntervalSince(lastTime)
+                    if dt >= 0.25 {
+                        let speed = Double(done - lastBytes) / max(dt, 0.001)
+                        lastBytes = done
+                        lastTime = now
+                        self.downloadStatusText = Self.speedText(speed)
+                            + " · \(Self.byteText(done))/\(Self.byteText(p.totalUnitCount))"
+                    }
+                }
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+        }
+        defer { poller.cancel() }
+
         do {
             var req = URLRequest(url: url)
-            req.timeoutInterval = 120
+            req.timeoutInterval = 300   // IPA 约 5MB，放宽超时
             req.setValue("QinglongClientPro-iOS", forHTTPHeaderField: "User-Agent")
-            let (tmp, _) = try await session.download(for: req)
             let dest = FileManager.default.temporaryDirectory
                 .appendingPathComponent(url.lastPathComponent)
             try? FileManager.default.removeItem(at: dest)
-            try FileManager.default.moveItem(at: tmp, to: dest)
+
+            let tmpURL: URL = try await withCheckedThrowingContinuation { cont in
+                let task = dlSession.downloadTask(with: req) { tmp, resp, error in
+                    if let error { cont.resume(throwing: error); return }
+                    if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                        cont.resume(throwing: URLError(.badServerResponse)); return
+                    }
+                    guard let tmp else {
+                        cont.resume(throwing: URLError(.badServerResponse)); return
+                    }
+                    cont.resume(returning: tmp)
+                }
+                box.task = task
+                task.resume()
+            }
+            try FileManager.default.moveItem(at: tmpURL, to: dest)
+            let finalBytes = box.task?.progress.completedUnitCount ?? 0
+            downloadProgress = 1.0
+            downloadStatusText = "下载完成 · \(Self.byteText(finalBytes))"
             return dest
         } catch {
             downloadError = Self.friendlyError(error)
             return nil
         }
+    }
+
+    /// 字节数格式化（如 5.1 MB）。
+    static func byteText(_ bytes: Int64) -> String {
+        ByteCountFormatter().string(fromByteCount: bytes)
+    }
+
+    /// 速率格式化（如 1.2 MB/s）。
+    static func speedText(_ bytesPerSecond: Double) -> String {
+        if bytesPerSecond >= 1024 * 1024 {
+            return String(format: "%.1f MB/s", bytesPerSecond / 1024 / 1024)
+        } else if bytesPerSecond >= 1024 {
+            return String(format: "%.0f KB/s", bytesPerSecond / 1024)
+        }
+        return String(format: "%.0f B/s", bytesPerSecond)
     }
 
     /// 对整个检查加总超时：网络调用与「到点抛超时」赛跑，先完成者胜出。
