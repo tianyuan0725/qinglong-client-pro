@@ -199,45 +199,32 @@ final class CronWatchService: ObservableObject {
     /// 成功 → 「✅ 执行成功 / ⏱️ 执行耗时: N 秒 / 🕐 完成时间: ...」
     /// 失败 → 「❌ 错误标题 / 💬 错误信息: ... / ⏱️ 执行耗时 / 🕐 完成时间」
     /// 状态与错误信息从 cron 日志实时解析（## 失败/❌ 标记、ERROR 行）。
+    /// 组装任务完成通知内容 = 企业微信机器人收到的内容。
+    /// 青龙推送链路（源码确认）：脚本 sendNotify(text, desp) → qywxBotNotify →
+    /// POST qyapi.weixin.qq.com/cgi-bin/webhook/send，body content 为
+    /// `text\n\ndesp`；脚本通常先 echo/print 这段文本再调用。因此通知正文
+    /// 直接取日志里最后一次执行的脚本业务输出（extractLogBody），不附加
+    /// 青龙内核结论行（✅ 执行成功 / 耗时 / 完成时间）——那些是企业微信
+    /// 收不到的，属于多余内容。
+    /// 兜底：脚本未 echo 通知内容（直接传变量）时，退回结论行摘要。
     private func finishDetail(session: PanelSession, cron: CronTask) async -> String {
         let log = (try? await session.cronLog(id: cron.id)) ?? ""
-        let parsed = Self.parseCronLog(log)
-        var lines: [String] = []
-        if parsed.stopped && !parsed.failed {
-            lines.append("🛑 已停止")
-        } else if parsed.failed {
-            lines.append("❌ \(parsed.errorTitle.isEmpty ? "任务执行异常" : parsed.errorTitle)")
-            if !parsed.errorDetail.isEmpty {
-                lines.append("💬 错误信息: \(parsed.errorDetail)")
-            }
-        } else {
-            lines.append("✅ 执行成功")
-        }
-        // 耗时：优先日志结论行的「耗时 N 秒」（与面板一致），其次 last_running_time
-        let secs = parsed.durationSecs ?? cron.lastRunningTime?.value ?? 0
-        if secs > 0 {
-            lines.append(secs >= 60
-                ? String(format: "⏱️ 执行耗时: %.1f 分钟", Double(secs) / 60)
-                : String(format: "⏱️ 执行耗时: %d 秒", secs))
-        }
-        // 完成时间：优先日志结论行时刻；last_execution_time 记的是开始时刻，
-        // 兜底用「开始 + 耗时」。注意不同青龙版本时间戳可能是秒或毫秒。
-        if let finished = parsed.finishedAt {
-            lines.append("🕐 完成时间: \(finished)")
-        } else if let raw = cron.lastExecutionTime?.value, raw > 0 {
-            let startSec = raw > 100_000_000_000 ? raw / 1000 : raw
-            let finished = Date(timeIntervalSince1970: Double(startSec) + Double(secs))
-            lines.append("🕐 完成时间: \(Self.dateText(finished))")
-        }
-        // 附上最近一次执行的脚本输出正文——青龙推送到企业微信的完整内容
-        // 就是脚本 sendNotify(text, desp) 的文本，脚本通常先 echo/print 再
-        // 发送，日志里能原样找回；只带结论行会丢失业务信息（如签到结果）。
         let body = Self.extractLogBody(log)
         if !body.isEmpty {
-            lines.append("")
-            lines.append(contentsOf: body)
+            return body.joined(separator: "\n")
         }
-        return lines.joined(separator: "\n")
+        let parsed = Self.parseCronLog(log)
+        if parsed.stopped && !parsed.failed {
+            return "🛑 已停止"
+        }
+        if parsed.failed {
+            var fallback = ["❌ \(parsed.errorTitle.isEmpty ? "任务执行异常" : parsed.errorTitle)"]
+            if !parsed.errorDetail.isEmpty {
+                fallback.append("💬 错误信息: \(parsed.errorDetail)")
+            }
+            return fallback.joined(separator: "\n")
+        }
+        return "✅ 执行成功"
     }
 
     /// 青龙 cron 日志解析结果。
@@ -336,6 +323,37 @@ final class CronWatchService: ObservableObject {
     /// `## 开始执行...` 之后、结论行（## 完成/失败/已停止）之前的片段；
     /// 再逐行剥离时间戳 / ` - LEVEL - ` 前缀，滤掉 ERROR 等日志噪音行。
     /// 只保留最后 15 行——sendNotify 的文本在脚本末尾输出。
+    /// 过程噪音行：脚本运行过程输出，不会发送到企业微信，通知里剔除。
+    private static let noiseLineRegexes: [Regex<Substring>] = [
+        /^HTTP 引擎/,
+        /^随机延迟/,
+        /^延迟结束/,
+        /^共\d+个账号/,
+        /^---.*---$/,
+        /^账号\s*\d+/,
+        /^用户\s*\d+/,
+        /^企业微信/,
+        /发送通知消息/,
+        /^执行前置命令/,
+        /^执行后置命令/,
+        /任务结束/,
+        /^检测到/,
+    ]
+
+    private static func isNoiseLine(_ text: String) -> Bool {
+        for re in noiseLineRegexes {
+            if text.firstMatch(of: re) != nil { return true }
+        }
+        return false
+    }
+
+    /// 提取脚本 sendNotify 的业务输出——与企业微信机器人收到的内容保持一致。
+    /// 青龙推送到企业微信的内容 = 脚本 sendNotify(text, desp) → `text\n\ndesp`，
+    /// 脚本通常先 echo/print 再调用；而过程行（延迟、账号处理、引擎、机器人
+    /// 启动日志、处理完毕、任务结束等）不会发送，通知里必须剔除。
+    /// 日志按次追加（tee -a），先按「## 开始执行...」+ 结论行截取最后一次
+    /// 执行，再从后往前收集业务行：连续 3 行噪音即止（业务段之后通常跟着
+    /// 「服务启动/推送成功/处理完毕/任务结束」成片噪音）。
     private static func extractLogBody(_ log: String) -> [String] {
         let lines = log.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         guard !lines.isEmpty else { return [] }
@@ -354,14 +372,14 @@ final class CronWatchService: ObservableObject {
         for i in (0..<end).reversed() {
             if lines[i].contains("## 开始执行") { start = i + 1; break }
         }
-        // 没找到起点（旧版青龙无分隔线）时最多回看 40 行，避免带入历史执行
-        if start < 0 { start = max(0, end - 40) }
-        var body: [String] = []
+        // 没找到起点（旧版青龙无分隔线）时最多回看 60 行，避免带入历史执行
+        if start < 0 { start = max(0, end - 60) }
+        // 逐行清洗：剥离时间戳 / 级别前缀，标记噪音行
+        var cleaned: [(text: String, noise: Bool)] = []
         for i in start..<end {
             let t = lines[i].trimmingCharacters(in: .whitespaces)
             if t.isEmpty { continue }
             if t.hasPrefix("## ") { continue }               // 内核标记行
-            if t.hasPrefix("执行前置命令") || t.hasPrefix("执行后置命令") { continue }
             var text = t
             // 剥离「时间 - LEVEL - 」前缀（青龙 preload 包装的 logging 行）
             if let m = text.firstMatch(of: Self.logLevelRegex) {
@@ -374,12 +392,29 @@ final class CronWatchService: ObservableObject {
                 if text.hasPrefix(prefix) { text = String(text.dropFirst(prefix.count)) }
             }
             text = text.trimmingCharacters(in: .whitespaces)
-            if !text.isEmpty {
-                // 单行截断，防止通知体过长
-                body.append(text.count > 200 ? String(text.prefix(200)) + "…" : text)
-            }
+            if text.isEmpty { continue }
+            cleaned.append((text: text, noise: Self.isNoiseLine(text)))
         }
-        return Array(body.suffix(15))
+        // 从后往前收集业务行：
+        // ① 结尾成片噪音（推送成功/处理完毕/任务结束）先无上限跳过；
+        // ② 见到第一条业务行后，连续 3 行噪音即止（业务段与过程段的分界）。
+        var body: [String] = []
+        var seenBusiness = false
+        var noiseRun = 0
+        for item in cleaned.reversed() {
+            if item.noise {
+                if !seenBusiness { continue }
+                noiseRun += 1
+                if noiseRun >= 3 { break }
+                continue
+            }
+            seenBusiness = true
+            noiseRun = 0
+            body.append(item.text)
+        }
+        body.reverse()
+        // 单行截断，防止通知体过长
+        return body.map { $0.count > 200 ? String($0.prefix(200)) + "…" : $0 }
     }
 
     /// Date → "yyyy-MM-dd HH:mm:ss"。
