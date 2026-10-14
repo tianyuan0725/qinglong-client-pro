@@ -159,27 +159,30 @@ struct ProfileView: View {
                 showThemeSheet = true
             }
             Divider().padding(.leading, 46)
-            // v2.3.7：Face ID 解锁改为「我的」页直接开关，不再进入子页面
-            HStack(spacing: 12) {
-                Image(systemName: "faceid")
-                    .font(.system(size: 17))
-                    .foregroundStyle(.green)
-                    .frame(width: 26)
-                VStack(alignment: .leading, spacing: 2) {
+            // v2.3.4 起：Face ID 解锁点击进入子页面设置（保留原 UI 样式）
+            NavigationLink {
+                FaceIDLockView()
+                    .environmentObject(appLock)
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "faceid")
+                        .font(.system(size: 17))
+                        .foregroundStyle(.green)
+                        .frame(width: 26)
                     Text("Face ID 解锁")
                         .font(.body)
                         .foregroundStyle(.primary)
-                    Text(appLock.switchSubtitle)
-                        .font(.caption2)
+                    Spacer()
+                    Text(appLock.enabled ? "已开启" : "已关闭")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
-                Spacer()
-                Toggle("", isOn: $appLock.enabled)
-                    .labelsHidden()
-                    .disabled(!appLock.biometryAvailable)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 11)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 11)
             Divider().padding(.leading, 46)
             settingsRow(
                 icon: "arrow.down.circle",

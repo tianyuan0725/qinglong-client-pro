@@ -184,6 +184,33 @@ struct SystemSettingsView: View {
     }
 }
 
+/// Face ID 解锁设置（v2.3.4 从「我的」页独立出来）。
+/// 「我的」页的 Face ID 入口只管理 Face ID 本身，不再展示整个系统设置，
+/// 避免与「系统设置」页重复。
+struct FaceIDLockView: View {
+    @EnvironmentObject var appLock: AppLockManager
+
+    var body: some View {
+        List {
+            Section {
+                Toggle(isOn: $appLock.enabled) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("使用 Face ID 解锁 APP")
+                        Text(appLock.switchSubtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(!appLock.biometryAvailable)
+            } footer: {
+                Text("开启后，App 每次切换到前台都需要验证 Face ID。更多面板级设置（标题/时区/清理/并发等）请在「系统设置」中查看。")
+            }
+        }
+        .navigationTitle("Face ID 解锁")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 /// Generic single-value editor for system config fields.
 
 struct SystemConfigEditView: View {
