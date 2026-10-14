@@ -413,6 +413,8 @@ struct UpdateSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var downloadedURL: URL?
     @State private var showShare = false
+    /// 下载失败时的提示（downloadIPA 返回 nil 时展示，避免「点了没反应」）。
+    @State private var downloadError: String?
 
     var body: some View {
         NavigationStack {
@@ -474,14 +476,29 @@ struct UpdateSheet: View {
                                         Label("IPA 已下载，点击安装", systemImage: "square.and.arrow.up")
                                     }
                                     .tint(qlBrandGreen)
-                                    Text("IPA 已保存到本机临时目录，点上方按钮经系统分享面板安装（TrollStore）。")
+                                    Text("IPA 已保存到本机「文件」目录（可在 文件 App 中查看），点上方按钮经系统分享面板安装（TrollStore）。")
                                         .font(.caption2)
                                         .foregroundStyle(.secondary)
                                 } else {
                                     Button {
-                                        Task { downloadedURL = await updater.downloadIPA() }
+                                        Task {
+                                            downloadError = nil
+                                            if let src = await updater.downloadIPA() {
+                                                // 立刻把临时文件复制到持久且「文件」App 可见的 Documents 目录，
+                                                // 避免系统回收临时目录导致「看不到安装包 / 无法安装」。
+                                                downloadedURL = persistIPA(src) ?? src
+                                            } else if updater.error == nil {
+                                                downloadError = "下载失败，请检查网络后重试，或点下方「前往 GitHub」手动下载安装。"
+                                            }
+                                        }
                                     } label: {
                                         Label("下载 IPA 并更新", systemImage: "arrow.down.circle.fill")
+                                    }
+                                    if let msg = downloadError {
+                                        Text(msg)
+                                            .font(.caption2)
+                                            .foregroundStyle(QLPalette.red)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
                                     }
                                 }
                                 if let web = updater.releaseURL {
@@ -526,6 +543,21 @@ struct UpdateSheet: View {
             .sheet(isPresented: $showShare) {
                 if let u = downloadedURL { ShareSheet(items: [u]) }
             }
+        }
+    }
+
+    /// 把下载到的 IPA（多为 URLSession 临时目录文件）复制到 Documents 目录，
+    /// 返回持久且「文件」App 可见的路径；复制失败返回 nil（调用方兜底用原路径）。
+    private func persistIPA(_ source: URL) -> URL? {
+        let fm = FileManager.default
+        guard let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        let dest = docs.appendingPathComponent("QinglongClientPro.ipa")
+        do {
+            if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+            try fm.copyItem(at: source, to: dest)
+            return dest
+        } catch {
+            return nil
         }
     }
 }
