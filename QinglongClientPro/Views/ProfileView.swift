@@ -415,13 +415,6 @@ struct UpdateSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var downloadedURL: URL?
     @State private var showShare = false
-    /// 分享面板关闭后延迟删除安装包的 Task（安装完成即清理）。
-    @State private var cleanupTask: Task<Void, Never>?
-    /// 「安装包已清理」轻提示。
-    @State private var showCleanToast = false
-
-    /// 已下载 IPA 路径的持久化 key（RootView 后台自动下载时写入）。
-    static let downloadedKey = "qlpro_downloaded_ipa_path"
 
     var body: some View {
         NavigationStack {
@@ -457,13 +450,13 @@ struct UpdateSheet: View {
                         }
                         Section {
                             if updater.downloading {
-                                // 下载中（含后台自动下载）：进度条 + 速率 + 百分比
+                                // 下载中：进度条 + 速率 + 百分比
                                 VStack(spacing: 10) {
                                     ProgressView(value: updater.downloadProgress)
                                         .progressViewStyle(.linear)
                                         .tint(qlBrandGreen)
                                     HStack {
-                                        Text(updater.downloadStatusText.isEmpty ? "检测到新版本，正在自动下载 IPA…" : updater.downloadStatusText)
+                                        Text(updater.downloadStatusText.isEmpty ? "正在下载 IPA…" : updater.downloadStatusText)
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                         Spacer()
@@ -474,26 +467,21 @@ struct UpdateSheet: View {
                                 }
                                 .padding(.vertical, 4)
                             } else if let _ = updater.downloadURL {
-                                if let file = downloadedURL {
-                                    // 已下载完成：点击安装包直接经系统分享面板安装
-                                    // （TrollStore）；安装完成后自动删除安装包。
+                                if downloadedURL != nil {
+                                    // 已下载完成：显式二次确认后才弹分享面板。
+                                    // （修复旧版下载完成后自动弹分享导致的白屏；也避免误触）
                                     Button {
                                         showShare = true
                                     } label: {
                                         Label("IPA 已下载，点击安装", systemImage: "square.and.arrow.up")
                                     }
                                     .tint(qlBrandGreen)
-                                    Text("点上方按钮经系统分享面板安装（TrollStore），安装完成后安装包自动清理。")
+                                    Text("IPA 已保存到本机临时目录，点上方按钮经系统分享面板安装（TrollStore）。")
                                         .font(.caption2)
                                         .foregroundStyle(.secondary)
-                                    Button(role: .destructive) {
-                                        deleteDownloadedIPA()
-                                    } label: {
-                                        Label("删除安装包", systemImage: "trash")
-                                    }
                                 } else {
                                     Button {
-                                        Task { downloadedURL = await updater.downloadIPA(); persistDownloadedURL() }
+                                        Task { downloadedURL = await updater.downloadIPA() }
                                     } label: {
                                         Label("下载 IPA 并更新", systemImage: "arrow.down.circle.fill")
                                     }
@@ -537,75 +525,10 @@ struct UpdateSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
             }
-            .overlay(alignment: .bottom) {
-                if showCleanToast {
-                    Text("安装包已清理")
-                        .font(.caption)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .padding(.bottom, 20)
-                }
-            }
             .sheet(isPresented: $showShare) {
                 if let u = downloadedURL { ShareSheet(items: [u]) }
             }
-            // 打开页面时恢复「已下载」状态（后台自动下载完成的也在此展示）
-            .onAppear { restoreDownloadedURL() }
-            // 后台自动下载结束时把路径落库，界面切到「点击安装」
-            .onChange(of: updater.downloading) { downloading in
-                guard !downloading, updater.downloadURL != nil, downloadedURL == nil else { return }
-                // 先尝试从磁盘恢复（RootView 的后台下载已完成时避免重复下载）
-                restoreDownloadedURL()
-                if downloadedURL == nil {
-                    Task { downloadedURL = await updater.downloadIPA(); persistDownloadedURL() }
-                }
-            }
-            // 分享面板关闭 = 安装流程结束（TrollStore 已读取 IPA）：
-            // 延迟 3 秒删除安装包并清库（给系统完成文件读取留时间）。
-            .onChange(of: showShare) { showing in
-                cleanupTask?.cancel()
-                if !showing, downloadedURL != nil {
-                    cleanupTask = Task {
-                        try? await Task.sleep(nanoseconds: 3_000_000_000)
-                        guard !Task.isCancelled else { return }
-                        deleteDownloadedIPA()
-                        showCleanToast = true
-                        try? await Task.sleep(nanoseconds: 1_500_000_000)
-                        showCleanToast = false
-                    }
-                }
-            }
         }
-    }
-
-    /// 从 UserDefaults 恢复已下载 IPA（文件仍存在才有效）。
-    private func restoreDownloadedURL() {
-        if downloadedURL != nil { return }
-        if updater.downloading { return }
-        let path = UserDefaults.standard.string(forKey: Self.downloadedKey) ?? ""
-        guard !path.isEmpty else { return }
-        let url = URL(fileURLWithPath: path)
-        if FileManager.default.fileExists(atPath: url.path) {
-            downloadedURL = url
-        } else {
-            UserDefaults.standard.removeObject(forKey: Self.downloadedKey)
-        }
-    }
-
-    private func persistDownloadedURL() {
-        if let u = downloadedURL {
-            UserDefaults.standard.set(u.path, forKey: Self.downloadedKey)
-        }
-    }
-
-    /// 删除已下载的 IPA 并清除持久化路径。
-    private func deleteDownloadedIPA() {
-        if let u = downloadedURL {
-            try? FileManager.default.removeItem(at: u)
-        }
-        downloadedURL = nil
-        UserDefaults.standard.removeObject(forKey: Self.downloadedKey)
     }
 }
 

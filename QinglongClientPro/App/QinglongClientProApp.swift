@@ -66,7 +66,6 @@ struct RootView: View {
     @EnvironmentObject var store: ConnectionStore
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var appLock: AppLockManager
-    @EnvironmentObject var updater: UpdateChecker
 
     var body: some View {
         Group {
@@ -91,21 +90,6 @@ struct RootView: View {
         .opacity(appLock.isLocked ? 0 : 1)
         .onAppear {
             autoOpenPanelIfNeeded()
-            autoCheckUpdate()
-        }
-    }
-
-    /// 启动时检查客户端更新：检测到新版本即**后台自动下载** IPA，
-    /// 下载完成的路径存 UserDefaults，更新页直接展示「点击安装」。
-    private func autoCheckUpdate() {
-        guard updater.updateNotifyEnabled, updater.latestVersion == nil else { return }
-        Task {
-            await updater.check()
-            if updater.hasUpdate, !updater.downloading, updater.downloadURL != nil {
-                if let file = await updater.downloadIPA() {
-                    UserDefaults.standard.set(file.path, forKey: UpdateSheet.downloadedKey)
-                }
-            }
         }
     }
 
