@@ -159,10 +159,11 @@ struct ProfileView: View {
                 showThemeSheet = true
             }
             Divider().padding(.leading, 46)
-            // v2.3.4 起：Face ID 解锁点击进入子页面设置（保留原 UI 样式）
-            NavigationLink {
-                FaceIDLockView()
-                    .environmentObject(appLock)
+            // Face ID 解锁：点击整行（含「已开启/已关闭」状态文字）直接开关，不跳转子页面
+            Button {
+                if appLock.biometryAvailable {
+                    appLock.enabled.toggle()
+                }
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "faceid")
@@ -176,13 +177,11 @@ struct ProfileView: View {
                     Text(appLock.enabled ? "已开启" : "已关闭")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 11)
             }
+            .disabled(!appLock.biometryAvailable)
             Divider().padding(.leading, 46)
             settingsRow(
                 icon: "arrow.down.circle",
