@@ -229,6 +229,14 @@ final class CronWatchService: ObservableObject {
             let finished = Date(timeIntervalSince1970: Double(startSec) + Double(secs))
             lines.append("🕐 完成时间: \(Self.dateText(finished))")
         }
+        // 附上最近一次执行的脚本输出正文——青龙推送到企业微信的完整内容
+        // 就是脚本 sendNotify(text, desp) 的文本，脚本通常先 echo/print 再
+        // 发送，日志里能原样找回；只带结论行会丢失业务信息（如签到结果）。
+        let body = Self.extractLogBody(log)
+        if !body.isEmpty {
+            lines.append("")
+            lines.append(contentsOf: body)
+        }
         return lines.joined(separator: "\n")
     }
 
@@ -315,6 +323,64 @@ final class CronWatchService: ObservableObject {
     private static let timeRegex = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/
     /// 结论行里的耗时：耗时 8 秒 / 耗时 1 分钟（group1=数值，group2=单位）。
     private static let durationRegex = /耗时\s*(\d+)\s*(秒|分钟)/
+
+    /// 青龙 preload 包装的日志行前缀：`2026-10-14 08:23:01 - INFO - `。
+    /// group1=毫秒（可无），group2=日志级别。整匹配 m.0 即要剥离的前缀。
+    private static let logLevelRegex = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}([.,]\d{1,3})?\s+-\s+(INFO|WARNING|ERROR|DEBUG|CRITICAL)\s+-\s+/
+
+    /// 日志行首的时间戳前缀：`2026-10-14 08:23:01 ` / `2026-10-14 08:23:01,123 `。
+    private static let logTimePrefixRegex = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}([.,]\d{1,3})?\s+/
+
+    /// 提取最近一次执行的脚本输出正文，对齐企业微信机器人收到的内容。
+    /// 青龙日志按次追加（tee -a），先截取最后一次执行：
+    /// `## 开始执行...` 之后、结论行（## 完成/失败/已停止）之前的片段；
+    /// 再逐行剥离时间戳 / ` - LEVEL - ` 前缀，滤掉 ERROR 等日志噪音行。
+    /// 只保留最后 15 行——sendNotify 的文本在脚本末尾输出。
+    private static func extractLogBody(_ log: String) -> [String] {
+        let lines = log.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard !lines.isEmpty else { return [] }
+        // 结论行位置（从后往前第一条）
+        var end = lines.count
+        for i in lines.indices.reversed() {
+            let t = lines[i].trimmingCharacters(in: .whitespaces)
+            if t.contains("## 完成") || t.contains("## 失败") || t.contains("## 已停止")
+                || t.contains("## 执行成功") || t.contains("## 成功") {
+                end = i
+                break
+            }
+        }
+        // 最后一次执行的起点：最后一个「## 开始执行」分隔线
+        var start = -1
+        for i in (0..<end).reversed() {
+            if lines[i].contains("## 开始执行") { start = i + 1; break }
+        }
+        // 没找到起点（旧版青龙无分隔线）时最多回看 40 行，避免带入历史执行
+        if start < 0 { start = max(0, end - 40) }
+        var body: [String] = []
+        for i in start..<end {
+            let t = lines[i].trimmingCharacters(in: .whitespaces)
+            if t.isEmpty { continue }
+            if t.hasPrefix("## ") { continue }               // 内核标记行
+            if t.hasPrefix("执行前置命令") || t.hasPrefix("执行后置命令") { continue }
+            var text = t
+            // 剥离「时间 - LEVEL - 」前缀（青龙 preload 包装的 logging 行）
+            if let m = text.firstMatch(of: Self.logLevelRegex) {
+                let level = String(m.2)
+                if level == "ERROR" || level == "WARNING" || level == "CRITICAL" { continue }
+                let prefix = String(m.0)
+                if text.hasPrefix(prefix) { text = String(text.dropFirst(prefix.count)) }
+            } else if let m = text.firstMatch(of: Self.logTimePrefixRegex) {
+                let prefix = String(m.0)
+                if text.hasPrefix(prefix) { text = String(text.dropFirst(prefix.count)) }
+            }
+            text = text.trimmingCharacters(in: .whitespaces)
+            if !text.isEmpty {
+                // 单行截断，防止通知体过长
+                body.append(text.count > 200 ? String(text.prefix(200)) + "…" : text)
+            }
+        }
+        return Array(body.suffix(15))
+    }
 
     /// Date → "yyyy-MM-dd HH:mm:ss"。
     private static func dateText(_ date: Date) -> String {

@@ -11,6 +11,7 @@ struct ProfileView: View {
     @State private var showPanelManager = false
     @State private var panelManagerSortMode = false
     @State private var showUpdateSheet = false
+    @State private var showThemeSheet = false
     @State private var showServerUpdateAlert = false
 
     var body: some View {
@@ -40,6 +41,9 @@ struct ProfileView: View {
             .sheet(isPresented: $showUpdateSheet) {
                 UpdateSheet()
                     .environmentObject(updater)
+            }
+            .sheet(isPresented: $showThemeSheet) {
+                ThemeSheet(selection: $appState.colorSchemeRaw)
             }
             .alert("青龙服务端发现新版本", isPresented: $showServerUpdateAlert) {
                 Button("取消", role: .cancel) { }
@@ -150,7 +154,11 @@ struct ProfileView: View {
 
     private var settingsCard: some View {
         VStack(spacing: 0) {
-            // v2.3.4：「主题」与系统设置「外观」重复，已移除（系统设置里可改）。
+            // v2.3.5：恢复「主题」入口（v2.3.4 误删，系统设置里的外观与此独立）
+            settingsRow(icon: "moon.circle", color: .indigo, title: "主题", value: themeLabel) {
+                showThemeSheet = true
+            }
+            Divider().padding(.leading, 46)
             NavigationLink {
                 FaceIDLockView()
                     .environmentObject(appLock)
@@ -185,6 +193,14 @@ struct ProfileView: View {
             }
         }
         .qlCard(padding: 4)
+    }
+
+    private var themeLabel: String {
+        switch appState.colorSchemeRaw {
+        case "light": return "浅色"
+        case "dark": return "深色"
+        default: return "跟随系统"
+        }
     }
 
     private func settingsRow(icon: String, color: Color, title: String, value: String, action: @escaping () -> Void) -> some View {
